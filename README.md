@@ -1,0 +1,107 @@
+# ThinkFirst
+
+A behavioral research workspace: independent attempts, explicitly requested AI hint levels, verification, reflection, and longitudinal event analysis.
+
+**New here? Read [How ThinkFirst works](docs/how-it-works.md) first.** It explains the full flow with an example, where AI answers come from, what has been built, and what remains unverified. Current priority is getting the real AI workflow reliable before further visual work. A running website does not mean AI is connected: the local setup still requires an API key.
+
+## Local launch
+
+Prerequisites: Python 3.11+, Node 22+, Docker Desktop running. PostgreSQL uses **55432** on the host so an existing database on 5432 can coexist.
+
+```powershell
+Copy-Item .env.example .env
+docker compose up -d db
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r apps/api/requirements.lock.txt
+.\.venv\Scripts\python.exe -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --env-file .env
+```
+
+In a second terminal:
+
+```powershell
+cd apps/web
+npm ci
+npm run dev
+```
+
+Open **http://localhost:3000**. API documentation: **http://localhost:8000/docs**.
+
+The `.env` enables a labeled local participant. Add any available keys for **Groq, Gemini, OpenRouter, Mistral AI, and Cloudflare Workers AI**, then restart the API. Keep existing `.env` values when updating an installation. Cloudflare needs both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the other names are `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, and `MISTRAL_API_KEY`.
+
+Automatic fallback is on. The preferred `AI_PROVIDER` is tried first, followed by `AI_FALLBACK_ORDER=groq,gemini,openrouter,mistral,cloudflare`, without duplicate calls to the same provider in one chain. Missing configurations and temporarily unhealthy services are skipped. Defaults allow 9 seconds per provider and 50 seconds overall; both are configurable within backend bounds. Recovered provider failures stay in the research log and do not interrupt the conversation. If every service fails, the app shows a retryable final error and keeps your work. No answer is fabricated. See [setup and explanation](docs/how-it-works.md).
+
+Alternatively run `docker compose up -d --build` for both API and PostgreSQL; run the web app separately. Do not start both the host API and Docker API on the same port.
+
+## Included
+
+* Responsive overview, problem intake, attempt editor, optional gate, three explicit hint levels, continued follow-up chat, per-response checks, final reflection, session summaries, history, settings, and personal charts.
+* Strict event payload validation, server timestamps, ownership enforcement, transactional lifecycle events, serialized session writes, stable retry IDs, and PostgreSQL UPDATE/DELETE protection for raw events.
+* Central `emitEvent()` with per-event, per-participant localStorage entries, cross-tab synchronization, reconnect flushing, bounded retries, and visible errors. AI and closure operations flush queued events before proceeding.
+* Clerk JWT authentication integration; server-side issuer, expiration, signature and authorized-party verification; admin research allowlist.
+* Persisted user rollup table, refreshed on writes, at most five-minute read staleness, and explicit refresh timestamp. The export job refreshes all participant rollups.
+* Session reconstruction, per-user aggregation, Spearman coefficients, two-sided Mann–Whitney U with signed rank-biserial effects, and logistic odds ratios with 95% confidence intervals.
+* JSON/CSV exports, comparison script, PostgreSQL integration tests, browser tests, and GitHub Actions.
+
+Next.js **15.5.25** replaces the requested 14 baseline because current security advisories affect 14. The App Router/TypeScript/Tailwind architecture is preserved. React 19 and Recharts 3 are used; PostCSS is overridden to its patched release. Dependency versions are locked.
+
+## Authentication and production configuration
+
+Create a Clerk application. Set `AUTH_MODE=clerk`, `ENVIRONMENT=production`, `CLERK_ISSUER=https://<your-clerk-domain>`, and `WEB_ORIGINS=https://<your-web-host>` in the API environment. Set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_API_URL` in `apps/web/.env.local` or the web host environment, then rebuild. Clerk handles sign-in and signup through its modal.
+
+`ADMIN_SUBJECTS` is a comma-separated allowlist of Clerk subject IDs. The local development subject is `local-development-participant`; allowlisting it is useful only for local research previews. API access checks are authoritative even if a client bypasses a screen.
+
+For Vercel, set the project root to `apps/web`, build with `npm run build`, and configure the public API URL and Clerk publishable key. For Render/Railway, deploy `apps/api/Dockerfile` from repository root, attach PostgreSQL, set the API environment variables above and your selected provider key, and use `/health` as health check. Adapt the Docker start command to the host-provided port if required. Database tables and append-only triggers are created at startup. Provision a separate migration owner and restrict application DDL privileges for a hardened public deployment.
+
+No cloud deployment or live Clerk/provider integration has been performed: those require your accounts and credentials. Phase 7 adaptive friction remains an explicitly deferred stretch goal.
+
+## Research exports
+
+```powershell
+.\.venv\Scripts\python.exe -m analytics.export --output exports
+```
+
+Produces `participants.csv`, `sessions.csv`, `reflections.csv`, `analysis.json`, and `comparison.md`, and persists a research export. Schedule this command nightly using your deployment scheduler. `GET /analytics/research` is admin-only and accepts optional ISO `start`/`end` filters and `format=csv`. `/research` provides an admin analysis screen and JSON download.
+
+Research inference uses one row per user, with closed sessions aggregated before tests. At least 20 participants, both outcome classes, predictor variation, and a stable fit are required for logistic output. Missing/constant data yields explicit unavailable statuses. Correctness must be self-reported against a particular attempt; unknown correctness stays null.
+
+The original paper was not attached. Only reference numbers quoted in the specification are included. Behavioral scales differ from Likert survey scales; the output does **not** claim an exact replication or causal effect. See [metric decisions](docs/decisions.md).
+
+## Validation
+
+```powershell
+# Fast isolated SQLite checks
+.\.venv\Scripts\python.exe -m pytest -q
+
+# PostgreSQL integration (dedicated database)
+docker compose exec -T db createdb -U thinkfirst thinkfirst_test
+$env:TEST_DATABASE_URL='postgresql+psycopg://thinkfirst:thinkfirst@localhost:55432/thinkfirst_test'
+.\.venv\Scripts\python.exe -m pytest -q
+
+cd apps/web
+npm run build
+npm audit
+```
+
+For browser tests, use the isolated QA API entry point. It strips provider keys and refuses any database other than `thinkfirst_test`. Start each command in its own terminal (with the web production server on 3000):
+
+```powershell
+$env:DATABASE_URL='postgresql+psycopg://thinkfirst:thinkfirst@localhost:55432/thinkfirst_test'
+.\.venv\Scripts\python.exe -m uvicorn tests.browser_api:app --port 8001
+```
+
+```powershell
+$env:DATABASE_URL='postgresql+psycopg://thinkfirst:thinkfirst@localhost:55432/thinkfirst_test'
+$env:QA_MOCK_AI='true'
+.\.venv\Scripts\python.exe -m uvicorn tests.browser_api:app --port 8002
+```
+
+Then run `npx playwright test` from `apps/web`. Chrome must be installed. Port 8001 tests missing configuration; port 8002 injects synthetic HTTP provider responses to test fallback through the real backend and database. Neither seeds the main database or calls paid AI services. Screenshots show QA data. See [validation notes](docs/validation.md) for completed checks and remaining limits.
+
+## Contracts and limitations
+
+Read [the preserved specification](docs/specification.md), [event contract](docs/event-schema.md), and [implementation decisions](docs/decisions.md) before adding features. All features map to traceability rows 1–10. The append-only correction mechanism is documented before its implementation.
+
+Closing a browser tab leaves an active session open and resumable; in-app navigation records abandonment. A queued event rejected by the server remains visible and blocks actions in its own session until resolved; unrelated sessions can continue syncing; it is never silently dropped. LocalStorage does not survive browser data clearing. Tier heuristics reduce over-sharing but cannot prove semantic correctness. Before a real participant study, establish the study protocol and validate the behavioral proxies against the paper.
+
+Integration references: [Gemini API](https://ai.google.dev/api), [Groq API](https://console.groq.com/docs/api-reference), [OpenRouter API](https://openrouter.ai/docs/quickstart), [Mistral API](https://docs.mistral.ai/api), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/), [Clerk useAuth](https://clerk.com/docs/nextjs/reference/hooks/use-auth), and [ClerkProvider](https://clerk.com/docs/reference/components/clerk-provider). Legacy Claude support remains available.
+

@@ -1,0 +1,28 @@
+'use client';
+import Link from 'next/link';
+import {useEffect, useState} from 'react';
+import {ArrowRight, ArrowUpRight, Check, Clock3, Feather, Lightbulb, Plus, Sprout} from 'lucide-react';
+import {api, Rollup, SessionList} from '@/lib/api';
+import Patterns from './dashboard/Patterns';
+const pct = (v: number | null | undefined) => v == null ? '—' : `${Math.round(v * 100)}%`;
+export default function Overview({analytics = false}: {analytics?: boolean}) {
+  const [data, setData] = useState<Rollup | null>(null);
+  const [sessions, setSessions] = useState<SessionList>([]);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  useEffect(() => {let active = true; Promise.all([api<Rollup>('/analytics/me'), api<SessionList>('/sessions')]).then(([d, s]) => {if (active) {setData(d);setSessions(s);}}).catch(e => {if (active) setError(e.message);});return () => {active = false;};}, [reload]);
+  return <><div className="page-heading"><div><div className="eyebrow">{analytics ? 'NOTICE THE PATTERNS' : 'A LITTLE SPACE TO THINK'}</div><h1>{analytics ? 'Your thinking, over time.' : 'Good things start with a pause.'}</h1><p>{analytics ? 'A closer look at how you approach problems and use AI.' : 'Try an idea. Find a little clarity. Build on your own thinking.'}</p></div><span className="date-label">YOUR PERSONAL WORKSPACE</span></div>
+  {error && <div className="error" role="alert">{error}<button onClick={() => {setError('');setReload(v=>v+1);}}>Try again</button></div>}
+  {!analytics && <section className="hero"><div className="hero-copy"><span className="pill"><span/> THINKING SPACE</span><h2>Your first idea<br/>is a good place to start.</h2><p>Bring a problem, a question, or something you’re working through. Start with your thoughts. AI is here when you need it.</p><Link className="primary" href="/new"><Plus size={17}/> Start a new session <ArrowUpRight size={17}/></Link><span className="hero-footnote">No perfect answers needed. Just a place to begin.</span></div><div className="thinking-illustration" aria-hidden="true"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="orb"/><div className="floating-note back-note"><div className="note-lines"/><div className="note-lines short"/></div><div className="floating-note front-note"><Feather size={27} strokeWidth={1.1}/><span>What if I try…</span><div className="note-lines"/><div className="note-lines short"/><div className="sketch-line"/></div><span className="little-star star-one">✧</span><span className="little-star star-two">✧</span><div className="illustration-caption">a thought of your own</div></div></section>}
+  <div className="section-heading"><h3>Your thinking at a glance</h3><span>From your recorded sessions</span></div>
+  <div className="metric-grid">{[
+    {label: 'Sessions explored', value: data?.sessions_total, text: 'Every question is a starting point', Icon: BookIcon},
+    {label: 'Started with your thinking', value: data?.ai_first_ratio == null ? '—' : pct(1-data.ai_first_ratio), text: 'Among sessions where you asked AI', Icon: Sprout},
+    {label: 'AI responses verified', value: pct(data?.verification_rate), text: 'A moment to check and reflect', Icon: Check},
+    {label: 'AI requests this week', value: data?.ai_requests_7d, text: 'In the past 7 days', Icon: Lightbulb},
+  ].map(({label, value, text, Icon}) => <div className="metric-card" key={label}><div className="metric-label">{label}<Icon size={17}/></div><strong>{value ?? '—'}</strong><small>{text}</small></div>)}</div>
+  {analytics ? <Patterns data={data}/> : <div className="overview-lower"><section className="recent-section"><div className="section-heading"><h3>Pick up a thought</h3><Link href="/history">View all sessions <ArrowRight size={14}/></Link></div><div className="session-list">{!data && !error ? <p className="empty-text">Loading your sessions…</p> : sessions.length ? sessions.slice(0,3).map(s => <Link className="session-row" href={`/session/${s.id}`} key={s.id}><span className="session-icon"><Feather size={19}/></span><div><strong>{s.problem_text}</strong><small>{s.domain.replace('_', ' ')} <span>·</span> {new Date(s.started_at).toLocaleDateString(undefined, {month:'short',day:'numeric'})}</small></div><span className={`status-chip ${s.status === 'open' ? 'open' : ''}`}>{s.status === 'open' ? 'In progress' : 'Reflected'}</span><ArrowUpRight size={16}/></Link>) : <div className="empty-session"><span className="session-icon"><Feather size={21}/></span><h4>Your next thought belongs here.</h4><p>Start a session and your thinking journey will take shape.</p><Link href="/new">Explore your first question <ArrowRight size={14}/></Link></div>}</div></section><section className="reflection-card"><span className="eyebrow"><Sprout size={15}/> A SMALL REMINDER</span><h3>Progress isn’t always<br/>a quicker answer.</h3><p>Sometimes it’s a better question, a rough attempt, or noticing why something makes sense.</p><Link href="/dashboard">Get to know your patterns <ArrowUpRight size={15}/></Link></section></div>}
+  {!analytics && <section className="how-it-works"><span className="eyebrow">A SIMPLE RHYTHM</span><div>{[['01', 'Give it a thought', 'An unfinished idea is welcome.'], ['02', 'Get a little support', 'Choose how much help you need.'], ['03', 'Make it your own', 'Check, reflect, and take it with you.']].map(([n,t,d]) => <article key={n}><span>{n}</span><div><h4>{t}</h4><p>{d}</p></div></article>)}</div></section>}
+  {data && <p className="refresh-note"><Clock3 size={12}/> Updated {new Date(data.refreshed_at).toLocaleString()}. Empty measures appear as — until there is enough activity.</p>}</>;
+}
+function BookIcon({size}: {size: number}) {return <Feather size={size}/>;}

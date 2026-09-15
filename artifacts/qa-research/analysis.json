@@ -1,0 +1,180 @@
+{
+  "unit": "user",
+  "participants": 1,
+  "mann_whitney": [
+    {
+      "metric": "attempt_effort_score",
+      "n_ai_first": 1,
+      "n_other": 0,
+      "status": "insufficient_data"
+    },
+    {
+      "metric": "verification_rate",
+      "n_ai_first": 1,
+      "n_other": 0,
+      "status": "insufficient_data"
+    },
+    {
+      "metric": "unnecessary_ai_use_flag",
+      "n_ai_first": 0,
+      "n_other": 0,
+      "status": "insufficient_data"
+    },
+    {
+      "metric": "no_ai_completion_rate",
+      "n_ai_first": 1,
+      "n_other": 0,
+      "status": "insufficient_data"
+    },
+    {
+      "metric": "evaluation_completion_rate",
+      "n_ai_first": 1,
+      "n_other": 0,
+      "status": "insufficient_data"
+    }
+  ],
+  "spearman": [
+    {
+      "x": "is_ai_first",
+      "y": "ai_usage_frequency",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "is_ai_first",
+      "y": "attempt_effort_score",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "is_ai_first",
+      "y": "verification_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "is_ai_first",
+      "y": "unnecessary_ai_use_flag",
+      "n": 0,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "is_ai_first",
+      "y": "no_ai_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "is_ai_first",
+      "y": "evaluation_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "ai_usage_frequency",
+      "y": "attempt_effort_score",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "ai_usage_frequency",
+      "y": "verification_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "ai_usage_frequency",
+      "y": "unnecessary_ai_use_flag",
+      "n": 0,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "ai_usage_frequency",
+      "y": "no_ai_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "ai_usage_frequency",
+      "y": "evaluation_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "attempt_effort_score",
+      "y": "verification_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "attempt_effort_score",
+      "y": "unnecessary_ai_use_flag",
+      "n": 0,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "attempt_effort_score",
+      "y": "no_ai_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "attempt_effort_score",
+      "y": "evaluation_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "verification_rate",
+      "y": "unnecessary_ai_use_flag",
+      "n": 0,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "verification_rate",
+      "y": "no_ai_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "verification_rate",
+      "y": "evaluation_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "unnecessary_ai_use_flag",
+      "y": "no_ai_completion_rate",
+      "n": 0,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "unnecessary_ai_use_flag",
+      "y": "evaluation_completion_rate",
+      "n": 0,
+      "status": "insufficient_or_constant_data"
+    },
+    {
+      "x": "no_ai_completion_rate",
+      "y": "evaluation_completion_rate",
+      "n": 1,
+      "status": "insufficient_or_constant_data"
+    }
+  ],
+  "logistic": {
+    "status": "insufficient_data"
+  },
+  "reference": {
+    "source": "User-provided specification, not independently verified paper",
+    "ai_first_percent": 68.97,
+    "logistic_odds_ratio": 2.114,
+    "logistic_p": "<0.001",
+    "table_5": null
+  },
+  "limitations": [
+    "Behavioral proxies are not Likert scales; coefficients are not directly interchangeable.",
+    "Observational associations do not establish causality.",
+    "Missing correctness observations remain missing, not zero.",
+    "Inference uses closed sessions aggregated to one row per user."
+  ]
+}

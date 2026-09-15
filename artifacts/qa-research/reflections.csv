@@ -1,0 +1,7 @@
+user_id,session_id,event_type,created_at,text
+a0e0ba47-b204-4e3d-97f9-29b5eeb51c10,c66c55ef-1c58-4f3b-bf2d-69dd41d1b74d,verification_submitted,2026-09-14T18:14:04.563321+00:00,It matches my common-denominator approach.
+a0e0ba47-b204-4e3d-97f9-29b5eeb51c10,c66c55ef-1c58-4f3b-bf2d-69dd41d1b74d,evaluation_submitted,2026-09-14T18:14:04.606163+00:00,Equivalent fractions preserve the quantities.
+a0e0ba47-b204-4e3d-97f9-29b5eeb51c10,653b34e5-2a53-421f-b7ab-258c422548b1,verification_submitted,2026-09-14T18:19:27.882879+00:00,It matches my common-denominator approach.
+a0e0ba47-b204-4e3d-97f9-29b5eeb51c10,653b34e5-2a53-421f-b7ab-258c422548b1,evaluation_submitted,2026-09-14T18:19:27.898621+00:00,Equivalent fractions preserve the quantities.
+a0e0ba47-b204-4e3d-97f9-29b5eeb51c10,f20d26db-544b-4837-b116-27326c41a25e,verification_submitted,2026-09-14T18:22:00.800815+00:00,It matches my common-denominator approach.
+a0e0ba47-b204-4e3d-97f9-29b5eeb51c10,f20d26db-544b-4837-b116-27326c41a25e,evaluation_submitted,2026-09-14T18:22:00.816489+00:00,Equivalent fractions preserve the quantities.

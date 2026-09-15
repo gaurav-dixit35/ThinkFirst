@@ -1,0 +1,22 @@
+{
+  "unit": "user",
+  "participants": 0,
+  "mann_whitney": [],
+  "spearman": [],
+  "logistic": {
+    "status": "insufficient_data"
+  },
+  "reference": {
+    "source": "User-provided specification, not independently verified paper",
+    "ai_first_percent": 68.97,
+    "logistic_odds_ratio": 2.114,
+    "logistic_p": "<0.001",
+    "table_5": null
+  },
+  "limitations": [
+    "Behavioral proxies are not Likert scales; coefficients are not directly interchangeable.",
+    "Observational associations do not establish causality.",
+    "Missing correctness observations remain missing, not zero.",
+    "Inference uses closed sessions aggregated to one row per user."
+  ]
+}

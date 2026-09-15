@@ -1,0 +1,2 @@
+user_id,is_ai_first,ai_usage_frequency,attempt_effort_score,verification_rate,unnecessary_ai_use_flag,no_ai_completion_rate,evaluation_completion_rate
+a0e0ba47-b204-4e3d-97f9-29b5eeb51c10,1,5.7272727272727275,0.017180036923076923,0.3333333333333333,,0.15384615384615385,0.2727272727272727
