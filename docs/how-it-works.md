@@ -22,7 +22,7 @@ The provider generates text from this context. ThinkFirst checks for incomplete 
 
 ## Automatic fallback
 
-Supported services are **Groq, Google Gemini, OpenRouter, Mistral AI, and Cloudflare Workers AI**. Legacy Claude support remains available. Groq hosts models such as Llama; OpenRouter selects or routes to models; Cloudflare runs supported Workers AI models.
+Supported services are **Groq, Google Gemini, OpenRouter, Mistral AI, and Cloudflare Workers AI**. Legacy Claude support remains available. Groq hosts open-weight models; OpenRouter selects or routes to models; Cloudflare runs supported Workers AI models.
 
 The backend tries `AI_PROVIDER` first, followed by the ordered names in `AI_FALLBACK_ORDER`. Each service is attempted at most once per request. Missing configurations are skipped. Timeouts, rate limits, authentication errors, provider outages, incomplete responses, and hint-format violations can trigger the next provider using the same context and requested level. Explicit provider safety refusals stop the chain. Temporarily unhealthy services receive a short cooldown; changed credentials or models get a fresh attempt.
 
@@ -69,6 +69,6 @@ The live checks consume normal provider usage. You can use `--provider gemini`, 
 
 Implemented: problem entry, saved attempts, three hint levels, continued chat, automatic provider fallback, request recovery, offline event queues, per-response checks, final reflections, history, personal charts, and research exports. Queued events use separate storage entries so tabs do not overwrite each other. Rejected events remain visible; unrelated sessions can still sync. Browser storage does not survive clearing site data.
 
-At this implementation check, the local provider key fields were blank. **Real account connectivity and live answer quality still need verification after keys are entered.** Automated provider tests use controlled responses and do not claim live service success. Hosted Clerk sign-in, public deployment, real participant research, and the optional adaptive-friction feature remain outside completed local validation. Functionality is the current priority; no visual redesign was made.
+Live diagnostics now confirm successful short hints from Gemini, Groq, OpenRouter, and Cloudflare. Mistral returned a rate-limit response. Groq uses `openai/gpt-oss-20b`, which was listed by the configured account; its former Llama model was unavailable. Automated provider tests still use controlled responses. These live checks establish connectivity for small prompts, not general answer quality or permanent availability. Hosted Clerk sign-in, public deployment, real participant research, and the optional adaptive-friction feature remain outside completed local validation. Functionality is the current priority; no visual redesign was made.
 
 API references: [Gemini](https://ai.google.dev/api), [Groq](https://console.groq.com/docs/api-reference), [OpenRouter](https://openrouter.ai/docs/quickstart), [Mistral](https://docs.mistral.ai/api), [Cloudflare](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/).

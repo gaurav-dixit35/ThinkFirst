@@ -85,3 +85,19 @@ def test_selected_provider_sends_only_allowed_context(monkeypatch,name,tier):
 ])
 def test_unusable_responses_are_rejected(name,body):
     with pytest.raises(ValueError): provider.parse_response(name,body)
+
+
+def test_groq_reasoning_budget_leaves_room_for_visible_hint(monkeypatch):
+    monkeypatch.setenv('GROQ_API_KEY', 'synthetic-key')
+    monkeypatch.setenv('GROQ_MODEL', 'openai/gpt-oss-20b')
+    def handle(request):
+        body = json.loads(request.content)
+        complete = body.get('max_completion_tokens', body.get('max_tokens', 0)) >= 2048
+        return httpx.Response(200, json={'model': 'openai/gpt-oss-20b', 'choices': [{
+            'finish_reason': 'stop' if complete else 'length',
+            'message': {'reasoning': 'Internal reasoning is not user-visible.',
+                        'content': 'Which constraint matters?' if complete else ''}}]})
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(provider.httpx, 'AsyncClient', lambda **kwargs: real_client(transport=httpx.MockTransport(handle), **kwargs))
+    result = provider.generate(1, 'Solve an equation', '', [], 'groq')
+    assert result.text == 'Which constraint matters?'

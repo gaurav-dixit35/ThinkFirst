@@ -52,7 +52,7 @@ Create a Clerk application. Set `AUTH_MODE=clerk`, `ENVIRONMENT=production`, `CL
 
 For Vercel, set the project root to `apps/web`, build with `npm run build`, and configure the public API URL and Clerk publishable key. For Render/Railway, deploy `apps/api/Dockerfile` from repository root, attach PostgreSQL, set the API environment variables above and your selected provider key, and use `/health` as health check. Adapt the Docker start command to the host-provided port if required. Database tables and append-only triggers are created at startup. Provision a separate migration owner and restrict application DDL privileges for a hardened public deployment.
 
-No cloud deployment or live Clerk/provider integration has been performed: those require your accounts and credentials. Phase 7 adaptive friction remains an explicitly deferred stretch goal.
+Live provider checks have succeeded locally; see the validation record for provider-specific results. Cloud deployment and hosted Clerk sign-in remain unverified. Phase 7 adaptive friction remains an explicitly deferred stretch goal.
 
 ## Research exports
 

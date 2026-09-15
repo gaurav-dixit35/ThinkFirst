@@ -11,6 +11,8 @@ from apps.api import provider, routing
 
 
 def main():
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--provider', choices=list(provider.PROVIDERS))
     parser.add_argument('--live', action='store_true', help='Send a synthetic math question to the selected provider; account usage may apply.')
