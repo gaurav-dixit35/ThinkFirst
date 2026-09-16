@@ -41,10 +41,30 @@ class Invalidation(Strict):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class ConversationMode(Strict):
+    mode: Literal['ask_ai', 'try_myself']
+
+
+class PracticeDecision(Strict):
+    answer_event_id: UUID
+    decision: Literal['try_myself', 'continue_ai']
+
+
+class AnswerFeedback(Strict):
+    answer_event_id: UUID
+    rating: Literal['helpful', 'not_helpful', 'cleared']
+
+
+class Preferences(Strict):
+    practice_reminders: bool = Field(strict=True)
+
+
 PAYLOADS = {'attempt_submitted': Attempt, 'attempt_skipped': Skip,
             'verification_submitted': Verification, 'verification_skipped': VerificationSkip,
             'evaluation_submitted': Evaluation, 'evaluation_skipped': Strict,
-            'attempt_correctness_reported': Correctness, 'event_invalidated': Invalidation}
+            'attempt_correctness_reported': Correctness, 'event_invalidated': Invalidation,
+            'conversation_mode_changed': ConversationMode,
+            'practice_invitation_responded': PracticeDecision, 'answer_feedback': AnswerFeedback}
 
 
 class Emit(Strict):
@@ -58,6 +78,8 @@ class Start(Strict):
     event_id: UUID
     problem_domain: Literal['coding', 'math', 'writing', 'general_reasoning']
     problem_text: str = Field(min_length=1, max_length=20000)
+    experience: Literal['chat', 'guided'] = 'guided'
+    initial_mode: Literal['ask_ai', 'try_myself'] = 'ask_ai'
 
 
 class Hint(Strict):
@@ -66,6 +88,7 @@ class Hint(Strict):
     tier: Literal[1, 2, 3]
     provider: Literal['auto', 'gemini', 'groq', 'openrouter', 'mistral', 'cloudflare', 'anthropic'] | None = None
     followup_text: str | None = Field(default=None, min_length=1, max_length=5000)
+    answer_style: Literal['concise', 'detailed'] = 'concise'
 
 
 class Close(Strict):

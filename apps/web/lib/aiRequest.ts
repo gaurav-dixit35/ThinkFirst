@@ -1,6 +1,6 @@
 import {api, ApiError, LogEvent, ProviderName} from './api';
 
-export type HintRequest = {event_id:string; session_id:string; tier:number; provider?:ProviderName; followup_text?:string};
+export type HintRequest = {event_id:string; session_id:string; tier:number; provider?:ProviderName; followup_text?:string; answer_style?:'concise'|'detailed'};
 export const requestKey = (id:string) => `thinkfirst.ai-request.${id}`;
 
 // Keep the same id across transport retries. The server alone chooses providers.

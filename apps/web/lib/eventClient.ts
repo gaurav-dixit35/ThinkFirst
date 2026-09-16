@@ -1,6 +1,7 @@
 import {api, ApiError} from './api';
 
 type Payloads = {
+  conversation_mode_changed: {mode: 'ask_ai' | 'try_myself'};
   attempt_submitted: {attempt_text: string; is_partial: boolean};
   attempt_skipped: {skip_reason: string | null};
   verification_submitted: {hint_event_id: string; matches_own_attempt: boolean | null; justification: string};

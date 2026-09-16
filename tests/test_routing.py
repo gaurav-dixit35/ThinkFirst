@@ -201,20 +201,21 @@ def test_request_polling_is_owner_scoped(client):
 
 
 def test_total_deadline_is_shared_across_providers(monkeypatch):
+    from types import SimpleNamespace
     configure(monkeypatch, ('groq', 'gemini', 'mistral'))
     monkeypatch.setattr(routing, 'seconds', lambda name, *rest: 0.12 if name == 'AI_TOTAL_TIMEOUT_SECONDS' else 0.1)
-    cancelled, reports = [], []
+    elapsed = 0
+    monkeypatch.setattr(routing, 'time', SimpleNamespace(monotonic=lambda: elapsed))
+    attempted, reports = [], []
     async def generate(*args):
-        try:
-            await asyncio.sleep(10)
-        finally:
-            cancelled.append(args[4])
+        nonlocal elapsed
+        attempted.append(args[4])
+        elapsed += 0.1
+        raise TimeoutError
     monkeypatch.setattr(provider, 'generate_async', generate)
-    began = time.monotonic()
     with pytest.raises(routing.Exhausted):
         routing.generate(1, 'problem', '', [], on_attempt=reports.append)
-    assert time.monotonic()-began < 0.5
-    assert cancelled == ['groq', 'gemini']
+    assert attempted == ['groq', 'gemini']
     assert reports[-1]['error_code'] == 'deadline'
 
 

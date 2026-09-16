@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, create_engine, event
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Integer, BigInteger, Boolean, create_engine, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -28,6 +28,12 @@ class User(Base):
     subject: Mapped[str] = mapped_column(String, unique=True)
     display_name: Mapped[str] = mapped_column(String, default='Research participant')
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class UserPreferences(Base):
+    __tablename__ = 'user_preferences'
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id'), primary_key=True)
+    practice_reminders: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Session(Base):
@@ -66,6 +72,26 @@ class ResearchExport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class AIBudgetLock(Base):
+    __tablename__ = 'ai_budget_lock'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+
+class AIUsageRequest(Base):
+    """Mutable accounting, separate from the append-only behavioral events."""
+    __tablename__ = 'ai_usage_requests'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    status: Mapped[str] = mapped_column(String, default='pending')
+    attempt_budget: Mapped[int] = mapped_column(Integer)
+    max_attempts: Mapped[int] = mapped_column(Integer)
+    accounted_tokens: Mapped[int] = mapped_column(BigInteger)
+    accounted_micro_usd: Mapped[int] = mapped_column(BigInteger)
+    rate_micro_usd_per_million: Mapped[int] = mapped_column(BigInteger)
+    attempts: Mapped[list] = mapped_column(JSON, default=list)
+
+
 url = os.getenv('DATABASE_URL', 'postgresql+psycopg://thinkfirst:thinkfirst@localhost:55432/thinkfirst')
 engine = create_engine(url, pool_pre_ping=True, connect_args={'check_same_thread': False} if url.startswith('sqlite') else {'connect_timeout': 5})
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
@@ -80,6 +106,7 @@ def immutable(*args):
 def migrate():
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
+        conn.exec_driver_sql('INSERT INTO ai_budget_lock (id) VALUES (1) ON CONFLICT (id) DO NOTHING')
         if engine.dialect.name == 'postgresql':
             conn.exec_driver_sql("""CREATE OR REPLACE FUNCTION prevent_event_mutation() RETURNS trigger AS $$
             BEGIN RAISE EXCEPTION 'events are append-only'; END; $$ LANGUAGE plpgsql""")

@@ -2,17 +2,18 @@
 
 ThinkFirst lets you attempt a problem, ask AI for increasing amounts of help, and keep a record of your reasoning. It uses existing AI services; we have not trained a new model.
 
-## Try a complete session
+## The everyday experience (Phase 1)
 
-1. Enter a problem, such as **Solve 2x + 3 = 11**.
-2. Save your own attempt, or explicitly skip it.
-3. Ask for a **clarifying hint**. It should ask one question without giving the answer.
-4. Check the hint against your thinking, or skip the check. Request a **partial hint** for a relevant concept or next step.
-5. Check or skip, then request the **full explanation**. For this example, a correct solution subtracts 3, divides by 2, and checks that x = 4.
-6. Continue with **follow-up questions** about anything unclear. Your question and prior replies stay together, even when another provider takes over. Check or skip each new reply before continuing.
-7. Add or skip the final reflection and finish. Reopen the complete session in history. You can also finish independently without AI.
+1. Enter your question on the home page and choose **Ask AI**. This explicitly starts a saved conversation and requests a direct answer.
+2. Ask follow-up questions immediately. You do not need to pass through hint levels or fill out reflection forms.
+3. Switch to **Try myself** whenever you want. Write your own approach and save it, or ask for an optional hint or answer. Asking for help also saves your current attempt.
+4. Switch back to **Ask AI** in the same conversation. Questions, replies, and attempts stay together.
+5. Open History or another page whenever needed. Navigation does not abandon your conversation. Reopen it to continue; a pending response uses its existing request ID.
+6. Optionally choose **Complete conversation** when you are finished. The transcript remains available in History.
 
-Responses vary because the provider generates them; the example above is not a hardcoded app response. The app never escalates hint levels automatically.
+The uploaded `others/logo.png` is used unchanged. Provider configuration is available under **Settings → Workspace AI setup** for the local operator or administrator, rather than in everyday chat. Modes, counters, and navigation do not call an AI provider.
+
+Older guided research sessions retain the original attempt/skip gate, three hint levels, and reflection decisions. New web conversations use the `chat-v1` protocol; old sessions remain `guided-v1`. Research exports default to guided sessions and require an explicit selection for chat sessions.
 
 ## How an answer is generated
 
@@ -67,8 +68,28 @@ The live checks consume normal provider usage. You can use `--provider gemini`, 
 
 ## Built and remaining
 
-Implemented: problem entry, saved attempts, three hint levels, continued chat, automatic provider fallback, request recovery, offline event queues, per-response checks, final reflections, history, personal charts, and research exports. Queued events use separate storage entries so tabs do not overwrite each other. Rejected events remain visible; unrelated sessions can still sync. Browser storage does not survive clearing site data.
+Implemented: immediate AI answers, Ask AI / Try myself modes in one conversation, optional hints, saved attempts, automatic provider fallback, request recovery, offline event queues, history, personal charts, and protocol-separated research exports. Earlier guided sessions retain their original checks and reflections. Queued events use separate storage entries so tabs do not overwrite each other. Rejected events remain visible; unrelated sessions can still sync. Browser storage does not survive clearing site data.
 
 Live diagnostics now confirm successful short hints from Gemini, Groq, OpenRouter, and Cloudflare. Mistral returned a rate-limit response. Groq uses `openai/gpt-oss-20b`, which was listed by the configured account; its former Llama model was unavailable. Automated provider tests still use controlled responses. These live checks establish connectivity for small prompts, not general answer quality or permanent availability. Hosted Clerk sign-in, public deployment, real participant research, and the optional adaptive-friction feature remain outside completed local validation. Functionality is the current priority; no visual redesign was made.
 
 API references: [Gemini](https://ai.google.dev/api), [Groq](https://console.groq.com/docs/api-reference), [OpenRouter](https://openrouter.ai/docs/quickstart), [Mistral](https://docs.mistral.ai/api), [Cloudflare](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/).
+
+## What comes next
+
+[The roadmap](roadmap.md) separates the remaining work into sustainable free access and spending controls, optional practice reminders, better history and analysis, trust and launch readiness, and presentation improvements. Phase 1 does not include token-based quotas, practice nudges, rich Markdown/math rendering, streaming, or a public launch. No unlimited free usage is promised.
+
+## Allowance and readable answers
+
+A new question or follow-up uses one AI request from your daily allowance. Provider fallback may try up to three services for that request. The counter below the conversation shows your remaining requests and reset time. Shared service limits may apply earlier; your own thinking and saved history remain available.
+
+Choose Concise for the essentials or Detailed for more explanation. Answers support lists, tables, code, and math. Copy answer keeps the original Markdown; Copy code copies just that block. Length changes and copying do not call AI.
+
+Workspace owners can inspect usage in Settings. The [usage guide](ai-usage.md) explains unknown token counts, conservative reservations, and optional estimated-dollar limits. No external AI call is made to calculate the counters.
+
+## Optional practice invitations
+
+After three AI answers without your own attempt, ThinkFirst may ask whether you want to try a small step yourself. Choose **Yes, I’ll try** to open Try myself with a suggestion connected to the question. Your existing draft stays intact. Choose **No, keep chatting** to continue normally, or ignore the invitation.
+
+Invitations wait at least ten minutes and three more AI answers after a decision; at most two can be answered per conversation. Turn them off from the invitation or from **Settings → Practice reminders**. The preference is saved to your account. These rules use counters and saved events, so they spend no AI tokens.
+
+Use the thumbs under an answer to mark it Helpful or Not helpful. Click the selected thumb again to clear your rating. Feedback is optional and can be changed later; it is not a correctness grade or a required step.

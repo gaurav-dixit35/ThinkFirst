@@ -6,6 +6,7 @@ import threading
 import time
 from typing import Callable
 from . import provider
+from .usage import limits
 
 DEFAULT_ORDER = 'groq,gemini,openrouter,mistral,cloudflare'
 _cooldowns: dict[str, float] = {}
@@ -46,7 +47,7 @@ class Exhausted(ValueError):
     pass
 
 
-async def _generate(tier, problem, attempt, hints, preferred, conversation, followup_text, on_attempt):
+async def _generate(tier, problem, attempt, hints, preferred, conversation, followup_text, on_attempt, answer_style, max_attempts):
     started = time.monotonic()
     budget = seconds('AI_TOTAL_TIMEOUT_SECONDS', 50, 5, 55)
     per_attempt = seconds('AI_PROVIDER_TIMEOUT_SECONDS', 9, 1, 30)
@@ -71,30 +72,41 @@ async def _generate(tier, problem, attempt, hints, preferred, conversation, foll
         if remaining <= 0:
             on_attempt({**report, 'error_code': 'deadline'})
             break
+        if attempted >= max_attempts:
+            on_attempt({**report, 'error_code': 'attempt_limit'})
+            break
         began = time.monotonic()
         attempted += 1
         violation = None
+        usage = None
         try:
             async with asyncio.timeout(min(per_attempt, remaining)):
-                result = await provider.generate_async(tier, problem, attempt, hints, name, conversation, followup_text)
+                result = await provider.generate_async(tier, problem, attempt, hints, name, conversation, followup_text, answer_style)
             with _lock:
                 _cooldowns.pop(key, None)
-            on_attempt({**report, 'outcome': 'success', 'latency_ms': int((time.monotonic()-began)*1000)})
+            on_attempt({**report, 'outcome': 'success', 'latency_ms': int((time.monotonic()-began)*1000), 'usage': result.usage})
             result.provider = name
             result.model = config['model']
             return result
         except provider.TierViolation as exc:
+            usage = getattr(exc, 'usage', None)
             code, retry_after = 'tier_violation', 0
             violation = exc.response
         except provider.ProviderError as exc:
+            usage = getattr(exc, 'usage', None)
             code, retry_after = exc.code, exc.retry_after
             if not exc.recoverable:
-                on_attempt({**report, 'outcome': 'failed', 'error_code': code, 'latency_ms': int((time.monotonic()-began)*1000)})
+                on_attempt({**report, 'outcome': 'failed', 'error_code': code, 'latency_ms': int((time.monotonic()-began)*1000), 'usage': usage})
                 raise Exhausted('AI could not respond to this request. Your work is saved; try rephrasing your question.') from exc
         except (TimeoutError, asyncio.TimeoutError):
             code, retry_after = 'timeout', 20
-        except ValueError:
+        except ValueError as exc:
+            usage = getattr(exc, 'usage', None)
             code, retry_after = 'invalid_response', 15
+        except Exception:
+            on_attempt({**report, 'outcome': 'failed', 'error_code': 'unexpected_error', 'usage': None,
+                        'latency_ms': int((time.monotonic()-began)*1000)})
+            raise
         cooldown = max(retry_after or 0, 300 if code in ('authentication', 'credits', 'model_unavailable') else 20 if code in ('rate_limit', 'timeout', 'unavailable') else 0)
         if cooldown:
             with _lock:
@@ -102,6 +114,7 @@ async def _generate(tier, problem, attempt, hints, preferred, conversation, foll
                     _cooldowns.clear()
                 _cooldowns[key] = time.monotonic() + min(cooldown, 300)
         on_attempt({**report, 'outcome': 'failed', 'error_code': code,
+                    'usage': usage,
                     'latency_ms': int((time.monotonic()-began)*1000), 'retry_after_seconds': cooldown or None,
                     **({'violation_response': violation} if violation is not None else {})})
     if not configured:
@@ -111,5 +124,8 @@ async def _generate(tier, problem, attempt, hints, preferred, conversation, foll
     raise Exhausted('AI assistance is temporarily unavailable. Your question and conversation are saved. Please retry shortly.')
 
 
-def generate(tier, problem, attempt, hints, preferred=None, conversation=None, followup_text=None, on_attempt: Callable | None = None):
-    return asyncio.run(_generate(tier, problem, attempt, hints, preferred, conversation, followup_text, on_attempt or (lambda report: None)))
+def generate(tier, problem, attempt, hints, preferred=None, conversation=None, followup_text=None, on_attempt: Callable | None = None,
+             answer_style='concise', max_attempts=None):
+    return asyncio.run(_generate(tier, problem, attempt, hints, preferred, conversation, followup_text,
+                                on_attempt or (lambda report: None), answer_style,
+                                max_attempts or limits()['max_attempts']))

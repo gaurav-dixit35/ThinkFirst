@@ -13,10 +13,10 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from analytics.etl import effective, reconstruct, summarize, timestamp, user_frame
 from analytics.stats import analyze
-from . import provider, routing
+from . import provider, routing, usage, practice
 from .auth import identity, is_admin, mode
-from .db import Event, ResearchExport, Rollup, Session, SessionLocal, User, migrate, now
-from .schemas import Close, Emit, Hint, PAYLOADS, Start
+from .db import Event, ResearchExport, Rollup, Session, SessionLocal, User, UserPreferences, migrate, now
+from .schemas import Close, Emit, Hint, PAYLOADS, Start, Preferences
 
 
 @asynccontextmanager
@@ -24,6 +24,7 @@ async def lifespan(app):
     mode()
     provider.configuration()
     routing.order()
+    usage.limits()
     migrate()
     yield
 
@@ -129,6 +130,13 @@ def currently_evaluated(events):
     return bool(decisions and decisions[-1]['event_type'].startswith('evaluation_'))
 
 
+def conversation_settings(events):
+    start = next(e for e in events if e['event_type'] == 'session_started')
+    changes = [e for e in events if e['event_type'] == 'conversation_mode_changed']
+    return {'experience': start['payload'].get('experience', 'guided'),
+            'mode': changes[-1]['payload']['mode'] if changes else start['payload'].get('initial_mode', 'ask_ai')}
+
+
 def expire_interrupted(db, session, events):
     for pending in in_flight(events):
         if (now()-timestamp(pending['created_at'])).total_seconds() >= 90:
@@ -161,11 +169,15 @@ def start(body: Start, db=Depends(database), participant=Depends(user)):
     if old:
         if old.payload['problem_text'] != body.problem_text or old.payload['problem_domain'] != body.problem_domain:
             raise HTTPException(409, 'Event ID reused with different problem data.')
+        if old.payload.get('experience', 'guided') != body.experience or old.payload.get('initial_mode', 'ask_ai') != body.initial_mode:
+            raise HTTPException(409, 'Event ID reused with different conversation settings.')
         return {'id': old.session_id}
     s = Session(user_id=participant.id, problem_domain=body.problem_domain)
     db.add(s)
     db.flush()
     append(db, s, 'session_started', {'problem_domain': body.problem_domain, 'problem_text': body.problem_text,
+                                    'experience': body.experience, 'initial_mode': body.initial_mode,
+                                    'protocol_version': 'chat-v1' if body.experience == 'chat' else 'guided-v1',
                                     'created_at': timestamp(s.started_at).isoformat()}, body.event_id)
     commit(db, participant.id)
     return {'id': s.id}
@@ -181,11 +193,30 @@ def sessions(db=Depends(database), participant=Depends(user)):
     return result
 
 
+@app.get('/preferences')
+def get_preferences(db=Depends(database), participant=Depends(user)):
+    return practice.preferences(db, participant.id)
+
+
+@app.post('/preferences')
+def save_preferences(body: Preferences, db=Depends(database), participant=Depends(user)):
+    db.scalar(select(User).where(User.id == participant.id).with_for_update())
+    row = db.get(UserPreferences, participant.id)
+    if row is None:
+        row = UserPreferences(user_id=participant.id)
+        db.add(row)
+    row.practice_reminders = body.practice_reminders
+    db.commit()
+    return practice.preferences(db, participant.id)
+
+
 @app.get('/sessions/{sid}')
 def get_session(sid: UUID, db=Depends(database), participant=Depends(user)):
     s = locked(db, sid, participant, False)
     events = timeline(db, s.id)
-    return {'id': s.id, 'status': s.status, 'events': effective(events), 'summary': reconstruct(events)[0]}
+    return {'id': s.id, 'status': s.status, 'events': effective(events), 'summary': reconstruct(events)[0],
+            **conversation_settings(effective(events)),
+            'practice': practice.state(effective(events), practice.preferences(db, participant.id)['practice_reminders'], s.status != 'open')}
 
 
 @app.post('/events')
@@ -202,10 +233,25 @@ def emit(body: Emit, db=Depends(database), participant=Depends(user)):
         if any(old.payload.get(k) != v for k, v in payload.items()):
             raise HTTPException(409, 'Event ID reused with different data.')
         return serialize(old)
-    if s.status != 'open':
+    if s.status != 'open' and body.event_type != 'answer_feedback':
         raise HTTPException(409, 'This session is closed. The pending event has not been saved.')
     events = effective(timeline(db, s.id))
     kind = body.event_type
+    if kind in ('practice_invitation_responded', 'answer_feedback'):
+        if conversation_settings(events)['experience'] != 'chat':
+            raise HTTPException(409, 'Optional practice and feedback are available in everyday conversations.')
+        if not any(e['id'] == payload['answer_event_id'] and e['event_type'] == 'ai_hint_delivered' for e in events):
+            raise HTTPException(400, 'Choose a delivered answer from this conversation.')
+    if kind == 'practice_invitation_responded':
+        existing = next((e for e in events if e['event_type'] == kind and e['payload']['answer_event_id'] == payload['answer_event_id']), None)
+        if existing:
+            # Another tab may already have answered this invitation. First decision wins.
+            return existing
+        current = practice.state(events, practice.preferences(db, participant.id)['practice_reminders'])
+        if not current['eligible'] or current['answer_event_id'] != payload['answer_event_id']:
+            raise HTTPException(409, 'This practice invitation is no longer available. You can always choose Try myself.')
+    if kind == 'conversation_mode_changed' and conversation_settings(events)['experience'] != 'chat':
+        raise HTTPException(409, 'Mode switching is available in everyday conversations.')
     if kind in ('attempt_submitted', 'attempt_skipped'):
         payload['time_since_session_start_ms'] = int((now()-timestamp(s.started_at)).total_seconds()*1000)
         if kind == 'attempt_submitted':
@@ -233,6 +279,8 @@ def emit(body: Emit, db=Depends(database), participant=Depends(user)):
         if not target or target['event_type'] in ('session_started', 'session_closed', 'event_invalidated'):
             raise HTTPException(400, 'Invalid correction target.')
     e = append(db, s, kind, payload, body.event_id)
+    if kind == 'practice_invitation_responded' and payload['decision'] == 'try_myself':
+        append(db, s, 'conversation_mode_changed', {'mode': 'try_myself', 'source': 'practice_invitation', 'decision_event_id': e.id})
     commit(db, participant.id)
     return serialize(e)
 
@@ -259,7 +307,7 @@ def close(sid: UUID, body: Close, db=Depends(database), participant=Depends(user
     if body.final_status == 'solved_with_ai':
         if not any(e['event_type'] == 'ai_hint_delivered' for e in events):
             raise HTTPException(409, 'No AI response was delivered.')
-        if pending_hints(events) or not currently_evaluated(events):
+        if conversation_settings(events)['experience'] == 'guided' and (pending_hints(events) or not currently_evaluated(events)):
             raise HTTPException(409, 'Complete or explicitly skip verification and evaluation before finishing.')
     s.status, s.closed_at = 'closed', now()
     e = append(db, s, 'session_closed', {'final_status': body.final_status, 'ai_events_count': count,
@@ -274,6 +322,8 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
     events = effective(timeline(db, s.id))
     old = duplicate(db, body.event_id, participant, s.id, 'ai_hint_requested')
     if old:
+        if body.answer_style != old.payload.get('answer_style', 'concise'):
+            raise HTTPException(409, 'Event ID reused with a different answer length.')
         if old.payload['tier_requested'] != body.tier:
             raise HTTPException(409, 'Event ID reused with a different tier.')
         if body.followup_text != old.payload.get('followup_text'):
@@ -294,21 +344,40 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
     events = expire_interrupted(db, s, events)
     if in_flight(events):
         raise HTTPException(409, 'Another hint is already being requested.')
-    if not any(e['event_type'] in ('attempt_submitted', 'attempt_skipped') for e in events):
+    settings = conversation_settings(events)
+    is_chat = settings['experience'] == 'chat'
+    if not is_chat and not any(e['event_type'] in ('attempt_submitted', 'attempt_skipped') for e in events):
         raise HTTPException(409, 'Save an attempt or explicitly skip it first.')
     delivered = [e for e in events if e['event_type'] == 'ai_hint_delivered']
     expected = min(len(delivered)+1, 3)
-    if body.followup_text and (body.tier != 3 or not any(e['payload']['tier'] == 3 for e in delivered)):
+    if not is_chat and body.followup_text and (body.tier != 3 or not any(e['payload']['tier'] == 3 for e in delivered)):
         raise HTTPException(409, 'Follow-up questions are available after the full explanation.')
-    if body.tier != expected or (len(delivered) >= 3 and not body.followup_text):
+    if not is_chat and (body.tier != expected or (len(delivered) >= 3 and not body.followup_text)):
         raise HTTPException(409, 'Request the next available hint level.')
-    if pending_hints(events):
+    if is_chat and delivered and not body.followup_text:
+        raise HTTPException(409, 'Include a question or instruction for your next reply.')
+    if not is_chat and pending_hints(events):
         raise HTTPException(409, 'Verify or explicitly skip the previous hint first.')
     attempts = [e for e in events if e['event_type'] == 'attempt_submitted']
     config = provider.configuration(body.provider)
     provenance = {'provider': config['id'], 'model': config['model']}
+    request_kind = 'followup' if body.followup_text else 'answer' if is_chat and body.tier == 3 else 'hint'
+    conversation = []
+    for event in events:
+        if event['event_type'] == 'ai_hint_delivered':
+            if event['payload'].get('followup_text'):
+                conversation.append({'role': 'user', 'content': event['payload']['followup_text']})
+            conversation.append({'role': 'assistant', 'content': event['payload']['hint_text']})
+    problem = events[0]['payload']['problem_text']
+    attempt = attempts[-1]['payload']['attempt_text'] if attempts else ''
+    hints = [e['payload']['hint_text'] for e in delivered]
+    candidates = routing.order(body.provider)
+    max_attempts = min(usage.limits()['max_attempts'], len(candidates))
+    budget = provider.attempt_budget(body.tier, problem, attempt, hints, conversation, body.followup_text, body.answer_style, candidates)
+    usage.reserve(db, body.event_id, participant.id, budget, max_attempts)
     req = append(db, s, 'ai_hint_requested', {**provenance, 'selected_provider': body.provider,
-                                            'request_kind': 'followup' if body.followup_text else 'hint', 'followup_text': body.followup_text,
+                                            'answer_style': body.answer_style,
+                                            **settings, 'request_kind': request_kind, 'followup_text': body.followup_text,
                                             'fallback_enabled': routing.enabled(), 'tier_requested': body.tier, 'preceded_by_attempt': bool(attempts),
                                             'time_since_session_start_ms': int((now()-timestamp(s.started_at)).total_seconds()*1000)}, body.event_id)
     commit(db, participant.id)  # Persist request before contacting provider, including on failure.
@@ -318,23 +387,16 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
         session = locked(db, body.session_id, participant)
         report = dict(report)
         violation = report.pop('violation_response', None)
+        usage.record_attempt(db, request_id, report)
         append(db, session, 'ai_provider_attempted', {**report, 'request_event_id': request_id})
         if violation is not None:
             append(db, session, 'hint_tier_violation', {'request_event_id': request_id, 'provider': report['provider'],
                    'model': report['model'], 'tier': body.tier, 'reason': 'Response exceeded hint level.', 'provider_response': violation})
         db.commit()
-    conversation = []
-    for event in events:
-        if event['event_type'] == 'ai_hint_delivered':
-            if event['payload'].get('followup_text'):
-                conversation.append({'role': 'user', 'content': event['payload']['followup_text']})
-            conversation.append({'role': 'assistant', 'content': event['payload']['hint_text']})
     began = time.monotonic()
     try:
-        generation = routing.generate(body.tier, events[0]['payload']['problem_text'],
-                                 attempts[-1]['payload']['attempt_text'] if attempts else '',
-                                 [e['payload']['hint_text'] for e in delivered], body.provider,
-                                 conversation, body.followup_text, record_attempt)
+        generation = routing.generate(body.tier, problem, attempt, hints, body.provider,
+                                 conversation, body.followup_text, record_attempt, body.answer_style, max_attempts)
     except SQLAlchemyError:
         raise
     except Exception as exc:
@@ -343,17 +405,25 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
             append(db, s, 'hint_tier_violation', {**provenance, 'tier': body.tier, 'reason': str(exc), 'provider_response': exc.response})
         reason = str(exc) if isinstance(exc, (ValueError, provider.TierViolation)) else 'AI assistance could not connect. Your work is saved. Try again when ready.'
         append(db, s, 'ai_hint_failed', {**provenance, 'request_event_id': request_id, 'reason': reason})
+        usage.finish(db, request_id)
         commit(db, participant.id)
         raise HTTPException(502, reason) from exc
     s = locked(db, body.session_id, participant)
     if not any(e['id'] == request_id for e in in_flight(effective(timeline(db, s.id)))):
         raise HTTPException(409, 'This request has already finished. Retrieve its saved result.')
     result = append(db, s, 'ai_hint_delivered', {'provider': generation.provider or config['id'], 'model': generation.model or config['model'],
-                                               'request_kind': 'followup' if body.followup_text else 'hint', 'followup_text': body.followup_text,
+                                               'answer_style': body.answer_style, 'usage': generation.usage,
+                                               **settings, 'request_kind': request_kind, 'followup_text': body.followup_text,
                                                'reported_model': generation.reported_model, 'tier': body.tier, 'hint_text': generation.text, 'request_event_id': request_id,
                                                'model_latency_ms': int((time.monotonic()-began)*1000)})
+    usage.finish(db, request_id)
     commit(db, participant.id)
     return serialize(result)
+
+
+@app.get('/ai/usage')
+def ai_usage(db=Depends(database), participant=Depends(user)):
+    return usage.snapshot(db, participant.id, is_admin(participant.subject) or mode() == 'development')
 
 
 @app.get('/ai/requests/{event_id}')
@@ -379,26 +449,29 @@ def personal(db=Depends(database), participant=Depends(user)):
 
 
 @app.get('/analytics/research')
-def research(start: datetime | None = None, end: datetime | None = None, format: str = 'json',
+def research(start: datetime | None = None, end: datetime | None = None, format: str = 'json', experience: str = 'guided',
              db=Depends(database), participant=Depends(user)):
     if not is_admin(participant.subject):
         raise HTTPException(403, 'Research administrator access required.')
     if format not in ('json', 'csv'):
         raise HTTPException(400, 'Format must be json or csv.')
+    if experience not in ('guided', 'chat'):
+        raise HTTPException(400, 'Choose either guided or chat experience for research analysis.')
     if start and end and timestamp(start) > timestamp(end):
         raise HTTPException(400, 'Start must precede end.')
     events = [serialize(e) for e in db.scalars(select(Event))]
     rows = reconstruct(events)  # Reconstruct complete timelines before applying date filters.
-    rows = [r for r in rows if not r.get('excluded') and
+    rows = [r for r in rows if not r.get('excluded') and r.get('experience', 'guided') == experience and
             (not start or timestamp(r['started_at']) >= timestamp(start)) and
             (not end or timestamp(r['started_at']) <= timestamp(end))]
     frame = user_frame(rows)
     if format == 'csv':
         return Response(frame.to_csv(index=False), media_type='text/csv',
-                        headers={'Content-Disposition': 'attachment; filename="thinkfirst-participants.csv"'})
+                        headers={'Content-Disposition': f'attachment; filename="thinkfirst-{experience}-participants.csv"'})
     output = analyze(frame)
     output['refreshed_at'] = now().isoformat()
     output['session_count'] = len(rows)
+    output['experience'] = experience
     db.add(ResearchExport(data=output))
     db.commit()
     return output

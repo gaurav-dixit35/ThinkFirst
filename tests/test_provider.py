@@ -17,7 +17,7 @@ def test_real_request_builder_and_response_parser(monkeypatch, tier):
         assert request.headers['x-api-key'] == 'test-key-never-returned'
         body = json.loads(request.content)
         context = json.loads(body['messages'][0]['content'])
-        assert body['system'] == provider.PROMPTS[tier]
+        assert body['system'].startswith(provider.PROMPTS[tier])
         assert context['problem'] == 'Solve 2x + 3 = 11'
         assert ('attempt' in context) == (tier >= 2)
         assert ('prior_hints' in context) == (tier == 3)
@@ -55,13 +55,13 @@ def test_selected_provider_sends_only_allowed_context(monkeypatch,name,tier):
             assert request.url.host=='generativelanguage.googleapis.com'
             assert request.headers['x-goog-api-key']=='test-only-key'
             assert 'test-only-key' not in str(request.url)
-            assert body['systemInstruction']['parts'][0]['text']==provider.PROMPTS[tier]
+            assert body['systemInstruction']['parts'][0]['text'].startswith(provider.PROMPTS[tier])
             context=json.loads(body['contents'][0]['parts'][0]['text'])
             response={'modelVersion':'reported-test-model','candidates':[{'finishReason':'STOP','content':{'parts':[{'thought':True,'text':'Private reasoning excluded'},{'text':answer}]}}]}
         else:
             assert request.url.host=={'groq':'api.groq.com','openrouter':'openrouter.ai','mistral':'api.mistral.ai','cloudflare':'api.cloudflare.com'}[name]
             assert request.headers['authorization']=='Bearer test-only-key'
-            assert body['messages'][0]['content']==provider.PROMPTS[tier]
+            assert body['messages'][0]['content'].startswith(provider.PROMPTS[tier])
             context=json.loads(body['messages'][1]['content'])
             response={'model':'reported-test-model','choices':[{'finish_reason':'stop','message':{'content':answer}}]}
         assert context['problem']=='Solve 2x + 3 = 11'

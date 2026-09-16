@@ -21,6 +21,12 @@ def isolated_ai(monkeypatch):
     monkeypatch.setenv('AI_FALLBACK_ENABLED', 'true')
     monkeypatch.setenv('AI_FALLBACK_ORDER', routing.DEFAULT_ORDER)
     routing.reset_cooldowns()
+    # Broad legacy suites share a synthetic participant. Limit tests override these.
+    for name in ('AI_USER_DAILY_REQUESTS', 'AI_USER_REQUESTS_PER_MINUTE', 'AI_GLOBAL_DAILY_TOKENS'):
+        monkeypatch.setenv(name, '1000000000')
+    monkeypatch.setenv('AI_GLOBAL_DAILY_BUDGET_USD', '0')
+    monkeypatch.setenv('AI_MAX_USD_PER_MILLION_TOKENS', '0')
+    monkeypatch.setenv('AI_MAX_PROVIDER_ATTEMPTS', '3')
 
 @pytest.fixture
 def client():

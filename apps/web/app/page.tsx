@@ -1,2 +1,2 @@
-import Overview from '@/components/Overview';
-export default function Page() {return <Overview/>;}
+import ProblemIntake from '@/components/ProblemIntake';
+export default function Page(){return <ProblemIntake/>;}

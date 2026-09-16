@@ -1,8 +1,8 @@
 # ThinkFirst
 
-A behavioral research workspace: independent attempts, explicitly requested AI hint levels, verification, reflection, and longitudinal event analysis.
+An AI conversation workspace with optional independent thinking. Ask for an answer immediately, switch to your own attempt, and keep everything in one saved conversation. Historical guided research sessions remain supported.
 
-**New here? Read [How ThinkFirst works](docs/how-it-works.md) first.** It explains the full flow with an example, where AI answers come from, what has been built, and what remains unverified. Current priority is getting the real AI workflow reliable before further visual work. A running website does not mean AI is connected: the local setup still requires an API key.
+**Build plan:** [Phased product roadmap](docs/roadmap.md). **Usage guide:** [How ThinkFirst works](docs/how-it-works.md). Phase 1 introduces a question-first home page, Ask AI / Try myself modes, and optional hints without mandatory reflection forms. API keys remain a server configuration requirement.
 
 ## Local launch
 
@@ -34,7 +34,7 @@ Alternatively run `docker compose up -d --build` for both API and PostgreSQL; ru
 
 ## Included
 
-* Responsive overview, problem intake, attempt editor, optional gate, three explicit hint levels, continued follow-up chat, per-response checks, final reflection, session summaries, history, settings, and personal charts.
+* Question-first home page, direct answers, free-form follow-up chat, optional own attempts and hints, persistent mode selection, resumable conversations, supplied logo, history, settings, and personal charts. Older guided sessions retain their original hint and reflection workflow.
 * Strict event payload validation, server timestamps, ownership enforcement, transactional lifecycle events, serialized session writes, stable retry IDs, and PostgreSQL UPDATE/DELETE protection for raw events.
 * Central `emitEvent()` with per-event, per-participant localStorage entries, cross-tab synchronization, reconnect flushing, bounded retries, and visible errors. AI and closure operations flush queued events before proceeding.
 * Clerk JWT authentication integration; server-side issuer, expiration, signature and authorized-party verification; admin research allowlist.
@@ -60,7 +60,7 @@ Live provider checks have succeeded locally; see the validation record for provi
 .\.venv\Scripts\python.exe -m analytics.export --output exports
 ```
 
-Produces `participants.csv`, `sessions.csv`, `reflections.csv`, `analysis.json`, and `comparison.md`, and persists a research export. Schedule this command nightly using your deployment scheduler. `GET /analytics/research` is admin-only and accepts optional ISO `start`/`end` filters and `format=csv`. `/research` provides an admin analysis screen and JSON download.
+Produces `participants.csv`, `sessions.csv`, `reflections.csv`, `analysis.json`, and `comparison.md`, and persists a research export. Schedule this command nightly using your deployment scheduler. `GET /analytics/research` is admin-only and accepts optional ISO `start`/`end` filters, `format=csv`, and `experience=guided|chat`. It defaults to guided sessions, keeping the protocols separate. The export CLI likewise defaults to guided; use `--experience chat` explicitly for everyday conversations. `/research` provides an admin analysis screen and JSON download.
 
 Research inference uses one row per user, with closed sessions aggregated before tests. At least 20 participants, both outcome classes, predictor variation, and a stable fit are required for logistic output. Missing/constant data yields explicit unavailable statuses. Correctness must be self-reported against a particular attempt; unknown correctness stays null.
 
@@ -101,7 +101,17 @@ Then run `npx playwright test` from `apps/web`. Chrome must be installed. Port 8
 
 Read [the preserved specification](docs/specification.md), [event contract](docs/event-schema.md), and [implementation decisions](docs/decisions.md) before adding features. All features map to traceability rows 1–10. The append-only correction mechanism is documented before its implementation.
 
-Closing a browser tab leaves an active session open and resumable; in-app navigation records abandonment. A queued event rejected by the server remains visible and blocks actions in its own session until resolved; unrelated sessions can continue syncing; it is never silently dropped. LocalStorage does not survive browser data clearing. Tier heuristics reduce over-sharing but cannot prove semantic correctness. Before a real participant study, establish the study protocol and validate the behavioral proxies against the paper.
+Ordinary browser and in-app navigation leaves conversations open and resumable. Completing a conversation is optional. Historical guided sessions keep their original reflection requirements when explicitly completed. A queued event rejected by the server remains visible and blocks actions in its own session until resolved; unrelated sessions can continue syncing; it is never silently dropped. LocalStorage does not survive browser data clearing. Tier heuristics reduce over-sharing but cannot prove semantic correctness. Before a real participant study, establish the study protocol and validate the behavioral proxies against the paper.
 
 Integration references: [Gemini API](https://ai.google.dev/api), [Groq API](https://console.groq.com/docs/api-reference), [OpenRouter API](https://openrouter.ai/docs/quickstart), [Mistral API](https://docs.mistral.ai/api), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/), [Clerk useAuth](https://clerk.com/docs/nextjs/reference/hooks/use-auth), and [ClerkProvider](https://clerk.com/docs/reference/components/clerk-provider). Legacy Claude support remains available.
 
+
+## AI allowance and answer formatting
+
+Phase 2 adds shared usage accounting, per-person daily and rate limits, concurrency limits, a maximum of three provider attempts, Concise/Detailed answers, and Markdown/code/math with copy controls. Independent thinking remains available when AI allowance is exhausted. Settings shows workspace usage for local development or administrators.
+
+Defaults work without changing existing keys. The optional estimated-dollar cap needs explicit price-ceiling configuration; it is off by default and does not replace provider billing controls. See [AI usage configuration](docs/ai-usage.md) and the [implementation phases](docs/roadmap.md).
+
+## Optional practice support
+
+Phase 3 adds gentle Yes/No practice invitations after repeated AI answers, a saved reminder preference in Settings, a cooldown, and editable Helpful/Not helpful answer feedback. Accepting opens a relevant practice step while preserving your draft; declining leaves chat available. None of these controls call an AI provider. See [practice support](docs/practice-support.md).

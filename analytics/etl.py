@@ -51,6 +51,8 @@ def reconstruct(events):
             flags.append('incomplete_session')
         rows.append(dict(session_id=sid, user_id=starts[0]['user_id'], started_at=start.isoformat(),
                          problem_domain=starts[0]['payload']['problem_domain'], final_status=final,
+                         experience=starts[0]['payload'].get('experience', 'guided'),
+                         initial_mode=starts[0]['payload'].get('initial_mode', 'ask_ai'),
                          is_ai_first=bool(requests and not pre), ai_requests=len(requests), ai_responses=len(deliveries),
                          first_ai_at=first_ai.isoformat() if first_ai else None,
                          time_to_ai_seconds=(first_ai-start).total_seconds() if first_ai else None,
