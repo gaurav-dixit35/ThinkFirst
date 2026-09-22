@@ -1,10 +1,13 @@
 import os
 import time
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
+from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
@@ -13,31 +16,75 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from analytics.etl import effective, reconstruct, summarize, timestamp, user_frame
 from analytics.stats import analyze
-from . import provider, routing, usage, practice
-from .auth import identity, is_admin, mode
-from .db import Event, ResearchExport, Rollup, Session, SessionLocal, User, UserPreferences, migrate, now
-from .schemas import Close, Emit, Hint, PAYLOADS, Start, Preferences
+from . import provider, routing, usage, practice, activity, privacy, chat_context, deployment
+from .http_safety import RequestBodyLimit
+from .auth import identity, is_admin, mode, origins, validate_configuration
+from .db import Event, ResearchExport, Rollup, Session, SessionLocal, User, UserPreferences, UserPrivacy, DeletionRequest, ConversationMetadata, AnswerPreferences, ResponseDraft, ConversationState, ConversationDeletion, migrate, verify_schema, now
+from .schemas import Close, Emit, Hint, PAYLOADS, Start, Preferences, ConversationTitle, AnalysisRequest, PrivacyChoices, DeleteConversations, AnswerPreference, ArchiveConversation, DeleteConversation, EditQuestion
 
 
 @asynccontextmanager
 async def lifespan(app):
-    mode()
+    validate_configuration()
     provider.configuration()
     routing.order()
     usage.limits()
-    migrate()
+    deployment.public_info()
+    if deployment.auto_migrate():
+        migrate()
+    else:
+        verify_schema()
+        if os.getenv('ENVIRONMENT', 'production') != 'development':
+            from .db import engine
+            from .permissions import verify_runtime
+            if engine.dialect.name != 'postgresql':
+                raise RuntimeError('Production requires PostgreSQL.')
+            with engine.connect() as connection:
+                verify_runtime(connection)
     yield
 
 
-app = FastAPI(title='ThinkFirst research instrument', version='1.0.0', lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=os.getenv('WEB_ORIGINS', 'http://localhost:3000').split(','),
-                   allow_methods=['GET', 'POST'], allow_headers=['Authorization', 'Content-Type'])
+app = FastAPI(title='ThinkFirst API', version='1.0.0', lifespan=lifespan)
+app.add_middleware(RequestBodyLimit)
+app.add_middleware(CORSMiddleware, allow_origins=origins(),
+                   allow_methods=['GET', 'POST'], allow_headers=['Authorization', 'Content-Type'], expose_headers=['X-Request-ID'])
+
+
+@app.middleware('http')
+async def private_responses(request, call_next):
+    request_id = str(uuid4())
+    request.state.request_id = request_id
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logging.getLogger('uvicorn.error').error('request_failed request_id=%s exception=%s', request_id, type(exc).__name__)
+        response = JSONResponse({'detail': 'Something went wrong. Please retry, or contact support with this request reference.'}, status_code=500)
+        if request.headers.get('origin') in origins():
+            response.headers['Access-Control-Allow-Origin'] = request.headers['origin']
+            response.headers['Access-Control-Expose-Headers'] = 'X-Request-ID'
+            response.headers['Vary'] = 'Origin'
+    route = getattr(request.scope.get('route'), 'path', '<unmatched>')
+    logging.getLogger('uvicorn.error').info('request_complete request_id=%s method=%s route=%s status=%s duration_ms=%d',
+        request_id, request.method, route, response.status_code, int((time.monotonic()-started)*1000))
+    response.headers['X-Request-ID'] = request_id
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.headers['X-Frame-Options'] = 'DENY'
+    return response
+
+
+@app.get('/service-info')
+def service_info():
+    return deployment.public_info()
 
 
 @app.exception_handler(SQLAlchemyError)
 async def database_error(request, exc):
     import logging
-    logging.getLogger(__name__).exception('Database operation failed', exc_info=exc)
+    # SQL exception strings can contain private text in query parameters.
+    logging.getLogger('uvicorn.error').error('database_error request_id=%s exception=%s', request.state.request_id, type(exc).__name__)
     return JSONResponse(status_code=503, content={'detail': 'The database could not save this operation. Please retry; duplicate events are prevented.'})
 
 
@@ -46,7 +93,7 @@ def database():
         yield db
 
 
-def user(subject=Depends(identity), db=Depends(database)):
+def user(request: Request, subject=Depends(identity), db=Depends(database)):
     found = db.scalar(select(User).where(User.subject == subject))
     if not found:
         found = User(subject=subject)
@@ -56,6 +103,11 @@ def user(subject=Depends(identity), db=Depends(database)):
         except IntegrityError:
             db.rollback()
             found = db.scalar(select(User).where(User.subject == subject))
+    if request.method == 'POST' and not request.url.path.startswith('/privacy') and not request.url.path.endswith('/cancel'):
+        if privacy.pending(db, found.id):
+            raise HTTPException(409, 'Conversation deletion is pending. You can still read and export your data in Settings.')
+        if mode() != 'development' and not privacy.state(db, found.id)['acknowledged']:
+            raise HTTPException(428, 'Please read and acknowledge the data notice before saving work.')
     return found
 
 
@@ -72,6 +124,8 @@ def locked(db, sid, participant, require_open=True):
     session = db.scalar(select(Session).where(Session.id == str(sid), Session.user_id == participant.id).with_for_update())
     if not session:
         raise HTTPException(404, 'Session not found.')
+    if require_open and db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==session.id, ConversationDeletion.status=='pending')):
+        raise HTTPException(409, 'Conversation deletion is pending. You can still read or export it.')
     if require_open and session.status != 'open':
         raise HTTPException(409, 'This session is already closed.')
     return session
@@ -150,10 +204,61 @@ def health(db=Depends(database)):
     return {'status': 'ok', 'database': 'connected', 'auth_mode': mode()}
 
 
+@app.get('/operator/status')
+def operator_status(db=Depends(database), participant=Depends(user)):
+    if mode() != 'development' and not is_admin(participant.subject):
+        raise HTTPException(403, 'Operator access required.')
+    return {'auth_mode': mode(), 'database': 'connected', 'privacy_notice_version': privacy.NOTICE_VERSION,
+            'deletion_requests': [privacy.record(r) for r in db.scalars(select(DeletionRequest).where(DeletionRequest.status == 'pending').order_by(DeletionRequest.created_at))] + [privacy.record(r) for r in db.scalars(select(ConversationDeletion).where(ConversationDeletion.status=='pending').order_by(ConversationDeletion.created_at))]}
+
+
 @app.get('/me')
-def me(participant=Depends(user)):
+def me(db=Depends(database), participant=Depends(user)):
     return {'id': participant.id, 'display_name': participant.display_name,
-            'admin': is_admin(participant.subject), 'development': mode() == 'development'}
+            'admin': is_admin(participant.subject), 'development': mode() == 'development',
+            'privacy': privacy.state(db, participant.id)}
+
+
+@app.get('/privacy')
+def privacy_status(db=Depends(database), participant=Depends(user)):
+    return privacy.state(db, participant.id)
+
+
+@app.post('/privacy')
+def privacy_choices(body: PrivacyChoices, db=Depends(database), participant=Depends(user)):
+    db.scalar(select(User).where(User.id == participant.id).with_for_update())
+    if body.research_opt_in and privacy.pending(db, participant.id):
+        raise HTTPException(409, 'Research sharing stays off while deletion is pending.')
+    row = db.get(UserPrivacy, participant.id)
+    if not row:
+        row = UserPrivacy(user_id=participant.id)
+        db.add(row)
+    row.research_opt_in = body.research_opt_in
+    row.updated_at = now()
+    if body.acknowledge_notice:
+        row.notice_version = privacy.NOTICE_VERSION
+        row.acknowledged_at = now()
+    db.commit()
+    return privacy.state(db, participant.id)
+
+
+@app.get('/privacy/export')
+def export_my_data(db=Depends(database), participant=Depends(user)):
+    return JSONResponse(jsonable_encoder(privacy.export_account(db, participant)),
+                        headers={'Content-Disposition': 'attachment; filename="thinkfirst-my-data.json"'})
+
+
+@app.post('/privacy/deletion', status_code=202)
+def request_deletion(body: DeleteConversations, db=Depends(database), participant=Depends(user)):
+    db.scalar(select(User).where(User.id == participant.id).with_for_update())
+    if not privacy.pending(db, participant.id):
+        db.add(DeletionRequest(user_id=participant.id))
+    row = db.get(UserPrivacy, participant.id)
+    if row:
+        row.research_opt_in = False
+        row.updated_at = now()
+    db.commit()
+    return privacy.state(db, participant.id)
 
 
 @app.get('/ai/status')
@@ -198,6 +303,114 @@ def get_preferences(db=Depends(database), participant=Depends(user)):
     return practice.preferences(db, participant.id)
 
 
+@app.get('/preferences/answers')
+def answer_preferences(db=Depends(database), participant=Depends(user)):
+    row = db.get(AnswerPreferences, participant.id)
+    return {'answer_style': row.answer_style if row else 'concise'}
+
+
+@app.post('/preferences/answers')
+def save_answer_preferences(body: AnswerPreference, db=Depends(database), participant=Depends(user)):
+    db.scalar(select(User).where(User.id == participant.id).with_for_update())
+    row = db.get(AnswerPreferences, participant.id)
+    if row is None:
+        row = AnswerPreferences(user_id=participant.id)
+        db.add(row)
+    row.answer_style = body.answer_style
+    db.commit()
+    return {'answer_style': row.answer_style}
+
+
+@app.get('/history')
+def history(q: str = Query('', max_length=200), status: Literal['all','open','completed','abandoned'] = 'all',
+            experience: Literal['all','chat','guided'] = 'all', limit: int = Query(25,ge=1,le=50),
+            offset: int = Query(0,ge=0), folder: Literal['active','archived','deletion']='active', db=Depends(database), participant=Depends(user)):
+    return activity.history(db,participant.id,q,status,experience,limit,offset,folder)
+
+
+@app.get('/progress')
+def progress(experience: Literal['chat','guided'] = 'chat', db=Depends(database), participant=Depends(user)):
+    events=[serialize(e) for e in db.scalars(select(Event).where(Event.user_id==participant.id))]
+    return activity.progress(events,experience)
+
+
+@app.post('/sessions/{sid}/title')
+def rename(sid: UUID, body: ConversationTitle, db=Depends(database), participant=Depends(user)):
+    session=locked(db,sid,participant,False)
+    if db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==session.id,ConversationDeletion.status=='pending')):
+        raise HTTPException(409, 'Conversation deletion is pending.')
+    metadata=db.get(ConversationMetadata,session.id)
+    if metadata is None:
+        metadata=ConversationMetadata(session_id=session.id)
+        db.add(metadata)
+    metadata.title=body.title
+    db.commit()
+    return {'title':body.title,'custom_title':body.title is not None}
+
+
+@app.post('/sessions/{sid}/archive')
+def archive_conversation(sid: UUID, body: ArchiveConversation, db=Depends(database), participant=Depends(user)):
+    session = locked(db, sid, participant, False)
+    row = db.get(ConversationState, session.id)
+    if row is None:
+        row = ConversationState(session_id=session.id)
+        db.add(row)
+    row.archived = body.archived
+    db.commit()
+    return {'archived':row.archived}
+
+
+@app.post('/sessions/{sid}/deletion', status_code=202)
+def delete_conversation(sid: UUID, body: DeleteConversation, db=Depends(database), participant=Depends(user)):
+    session = locked(db, sid, participant, False)
+    row = db.scalar(select(ConversationDeletion).where(ConversationDeletion.session_id==session.id))
+    if row:
+        return privacy.record(row)
+    events = effective(timeline(db,session.id))
+    if in_flight(events) or any(e['event_type']=='ai_analysis_requested' and not analysis_result(events,e['id']) for e in events):
+        raise HTTPException(409, 'Finish or stop the pending AI response before requesting deletion.')
+    row = ConversationDeletion(user_id=participant.id, session_id=session.id)
+    db.add(row)
+    db.commit()
+    return privacy.record(row)
+
+
+@app.post('/sessions/{sid}/edit-question', status_code=201)
+def edit_question(sid: UUID, body: EditQuestion, db=Depends(database), participant=Depends(user)):
+    original = locked(db, sid, participant, False)
+    if db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==original.id,ConversationDeletion.status=='pending')):
+        raise HTTPException(409, 'This conversation is awaiting deletion.')
+    old = db.get(Event,str(body.event_id))
+    if old:
+        if old.user_id!=participant.id or old.event_type!='session_started' or old.payload.get('edited_from')!={'session_id':str(sid),'event_id':str(body.source_event_id)} or old.payload['problem_text']!=body.question.strip():
+            raise HTTPException(409, 'This edit request ID was already used.')
+        return {'id':old.session_id}
+    events = effective(timeline(db,original.id))
+    if conversation_settings(events)['experience']!='chat':
+        raise HTTPException(409, 'Editing questions is available in everyday chats.')
+    source = next((e for e in events if e['id']==str(body.source_event_id)),None)
+    if not source or not (source['event_type']=='session_started' or source['event_type']=='ai_hint_requested' and source['payload'].get('followup_text') and not source['payload'].get('help_action') and not source['payload'].get('regenerate_of')):
+        raise HTTPException(422, 'Choose a question you wrote.')
+    if not body.question.strip():
+        raise HTTPException(422, 'Write a question first.')
+    before = events[:events.index(source)]
+    context = chat_context.context(before)[2] if before else events[0]['payload'].get('branch_context',[])
+    bounded, remaining = [], 24000
+    for message in reversed(context[-12:]):
+        content = message['content'][-remaining:]
+        bounded.insert(0,{'role':message['role'],'content':content})
+        remaining -= len(content)
+        if not remaining: break
+    session = Session(user_id=participant.id,problem_domain=original.problem_domain)
+    db.add(session)
+    db.flush()
+    append(db,session,'session_started',{'problem_text':body.question.strip(),'problem_domain':session.problem_domain,
+        'experience':'chat','protocol_version':'chat-v1','initial_mode':'ask_ai','branch_context':bounded,
+        'edited_from':{'session_id':str(sid),'event_id':str(body.source_event_id)}},body.event_id)
+    commit(db,participant.id)
+    return {'id':session.id}
+
+
 @app.post('/preferences')
 def save_preferences(body: Preferences, db=Depends(database), participant=Depends(user)):
     db.scalar(select(User).where(User.id == participant.id).with_for_update())
@@ -214,8 +427,14 @@ def save_preferences(body: Preferences, db=Depends(database), participant=Depend
 def get_session(sid: UUID, db=Depends(database), participant=Depends(user)):
     s = locked(db, sid, participant, False)
     events = timeline(db, s.id)
+    metadata=db.get(ConversationMetadata,s.id)
     return {'id': s.id, 'status': s.status, 'events': effective(events), 'summary': reconstruct(events)[0],
+            'archived':bool((db.get(ConversationState,s.id) or ConversationState()).archived),
+            'deletion_pending':bool(db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==s.id,ConversationDeletion.status=='pending'))),
+            'answer_style': answer_preferences(db, participant)['answer_style'],
             **conversation_settings(effective(events)),
+            'title':metadata.title if metadata and metadata.title else activity.title(events[0]['payload']['problem_text']),
+            'custom_title':bool(metadata and metadata.title),'overview':activity.overview(effective(events)),
             'practice': practice.state(effective(events), practice.preferences(db, participant.id)['practice_reminders'], s.status != 'open')}
 
 
@@ -322,6 +541,10 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
     events = effective(timeline(db, s.id))
     old = duplicate(db, body.event_id, participant, s.id, 'ai_hint_requested')
     if old:
+        if str(body.regenerate_of or '') != str(old.payload.get('regenerate_of') or ''):
+            raise HTTPException(409, 'Event ID reused for a different regeneration.')
+        if body.help_action != old.payload.get('help_action'):
+            raise HTTPException(409, 'Event ID reused with a different help action.')
         if body.answer_style != old.payload.get('answer_style', 'concise'):
             raise HTTPException(409, 'Event ID reused with a different answer length.')
         if old.payload['tier_requested'] != body.tier:
@@ -337,15 +560,19 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
         if result and result['event_type'] == 'ai_hint_delivered':
             return result
         if result:
-            raise HTTPException(502, result['payload']['reason'])
+            raise HTTPException(499 if result['payload'].get('cancelled') else 502, result['payload']['reason'])
         raise HTTPException(409, 'This request is still pending. Refresh the session to check its status.')
     if s.status != 'open':
         raise HTTPException(409, 'This session is closed.')
+    if db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==s.id, ConversationDeletion.status=='pending')):
+        raise HTTPException(409, 'Conversation deletion is pending.')
     events = expire_interrupted(db, s, events)
     if in_flight(events):
         raise HTTPException(409, 'Another hint is already being requested.')
     settings = conversation_settings(events)
     is_chat = settings['experience'] == 'chat'
+    if body.help_action and (not is_chat or body.tier != (2 if body.help_action == 'hint' else 3)):
+        raise HTTPException(422, 'Choose a matching chat help action and level.')
     if not is_chat and not any(e['event_type'] in ('attempt_submitted', 'attempt_skipped') for e in events):
         raise HTTPException(409, 'Save an attempt or explicitly skip it first.')
     delivered = [e for e in events if e['event_type'] == 'ai_hint_delivered']
@@ -354,11 +581,22 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
         raise HTTPException(409, 'Follow-up questions are available after the full explanation.')
     if not is_chat and (body.tier != expected or (len(delivered) >= 3 and not body.followup_text)):
         raise HTTPException(409, 'Request the next available hint level.')
-    if is_chat and delivered and not body.followup_text:
+    if is_chat and delivered and not body.followup_text and not body.help_action and not body.regenerate_of:
         raise HTTPException(409, 'Include a question or instruction for your next reply.')
     if not is_chat and pending_hints(events):
         raise HTTPException(409, 'Verify or explicitly skip the previous hint first.')
-    attempts = [e for e in events if e['event_type'] == 'attempt_submitted']
+    context_events = events
+    if body.regenerate_of:
+        target = next((e for e in delivered if e['id'] == str(body.regenerate_of)), None)
+        if not is_chat or not target or target != delivered[-1]:
+            raise HTTPException(409, 'Regenerate the latest answer in this conversation.')
+        source = next(e for e in events if e['id'] == target['payload']['request_event_id'])
+        if any(e['event_type'] in ('attempt_submitted','ai_hint_requested') for e in events[events.index(target)+1:]):
+            raise HTTPException(409, 'New work was saved after this answer. Ask a follow-up instead.')
+        if (body.followup_text, body.help_action, body.tier) != (source['payload'].get('followup_text'), source['payload'].get('help_action'), source['payload']['tier_requested']):
+            raise HTTPException(409, 'Regeneration must keep the original question and help level.')
+        context_events = events[:events.index(source)]
+    attempts = [e for e in context_events if e['event_type'] == 'attempt_submitted']
     config = provider.configuration(body.provider)
     provenance = {'provider': config['id'], 'model': config['model']}
     request_kind = 'followup' if body.followup_text else 'answer' if is_chat and body.tier == 3 else 'hint'
@@ -371,15 +609,21 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
     problem = events[0]['payload']['problem_text']
     attempt = attempts[-1]['payload']['attempt_text'] if attempts else ''
     hints = [e['payload']['hint_text'] for e in delivered]
+    followup = body.followup_text
+    if is_chat:
+        problem, attempt, conversation, followup = chat_context.context(context_events, body.followup_text, body.help_action)
+        hints = []  # Relevant earlier answers are already in the chronological history.
     candidates = routing.order(body.provider)
     max_attempts = min(usage.limits()['max_attempts'], len(candidates))
-    budget = provider.attempt_budget(body.tier, problem, attempt, hints, conversation, body.followup_text, body.answer_style, candidates)
+    budget = provider.attempt_budget(body.tier, problem, attempt, hints, conversation, followup, body.answer_style, candidates)
     usage.reserve(db, body.event_id, participant.id, budget, max_attempts)
     req = append(db, s, 'ai_hint_requested', {**provenance, 'selected_provider': body.provider,
-                                            'answer_style': body.answer_style,
+                                            'answer_style': body.answer_style, 'help_action': body.help_action, 'focus_question': problem,
+                                            'regenerate_of':str(body.regenerate_of) if body.regenerate_of else None, 'stream':body.stream,
                                             **settings, 'request_kind': request_kind, 'followup_text': body.followup_text,
                                             'fallback_enabled': routing.enabled(), 'tier_requested': body.tier, 'preceded_by_attempt': bool(attempts),
                                             'time_since_session_start_ms': int((now()-timestamp(s.started_at)).total_seconds()*1000)}, body.event_id)
+    db.add(ResponseDraft(request_id=req.id, session_id=s.id))
     commit(db, participant.id)  # Persist request before contacting provider, including on failure.
     request_id = req.id
     db.commit()  # Reading an expired ORM object may start a transaction; release it before network I/O.
@@ -393,10 +637,28 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
             append(db, session, 'hint_tier_violation', {'request_event_id': request_id, 'provider': report['provider'],
                    'model': report['model'], 'tier': body.tier, 'reason': 'Response exceeded hint level.', 'provider_response': violation})
         db.commit()
+    last_preview = 0.0
+    def cancelled():
+        draft = db.get(ResponseDraft, request_id, populate_existing=True)
+        result = bool(draft and draft.cancelled)
+        db.commit()
+        return result
+    def preview(text):
+        nonlocal last_preview
+        if text and time.monotonic()-last_preview < 0.25:
+            return
+        draft = db.get(ResponseDraft, request_id, populate_existing=True)
+        if draft.cancelled:
+            db.commit()
+            raise routing.Cancelled('Generation stopped. Usage already incurred still counts.')
+        draft.text = text
+        db.commit()
+        last_preview = time.monotonic()
     began = time.monotonic()
     try:
         generation = routing.generate(body.tier, problem, attempt, hints, body.provider,
-                                 conversation, body.followup_text, record_attempt, body.answer_style, max_attempts)
+                                 conversation, followup, record_attempt, body.answer_style, max_attempts,
+                                 **({'on_delta':preview, 'cancelled':cancelled} if body.stream else {}))
     except SQLAlchemyError:
         raise
     except Exception as exc:
@@ -404,16 +666,30 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
         if isinstance(exc, provider.TierViolation):
             append(db, s, 'hint_tier_violation', {**provenance, 'tier': body.tier, 'reason': str(exc), 'provider_response': exc.response})
         reason = str(exc) if isinstance(exc, (ValueError, provider.TierViolation)) else 'AI assistance could not connect. Your work is saved. Try again when ready.'
-        append(db, s, 'ai_hint_failed', {**provenance, 'request_event_id': request_id, 'reason': reason})
+        draft = db.get(ResponseDraft, request_id, populate_existing=True)
+        draft.text = ''
+        stopped = isinstance(exc, routing.Cancelled) or draft.cancelled
+        if stopped: reason = 'Generation stopped. Usage already incurred still counts.'
+        append(db, s, 'ai_hint_failed', {**provenance, 'request_event_id': request_id, 'reason': reason, 'cancelled':stopped})
         usage.finish(db, request_id)
         commit(db, participant.id)
-        raise HTTPException(502, reason) from exc
+        raise HTTPException(499 if stopped else 502, reason) from exc
     s = locked(db, body.session_id, participant)
     if not any(e['id'] == request_id for e in in_flight(effective(timeline(db, s.id)))):
         raise HTTPException(409, 'This request has already finished. Retrieve its saved result.')
+    draft = db.get(ResponseDraft, request_id, populate_existing=True)
+    draft.text = ''
+    if draft.cancelled:
+        reason = 'Generation stopped. Usage already incurred still counts.'
+        append(db, s, 'ai_hint_failed', {'request_event_id':request_id, 'reason':reason, 'cancelled':True})
+        usage.finish(db, request_id)
+        commit(db, participant.id)
+        raise HTTPException(499, reason)
     result = append(db, s, 'ai_hint_delivered', {'provider': generation.provider or config['id'], 'model': generation.model or config['model'],
                                                'answer_style': body.answer_style, 'usage': generation.usage,
                                                **settings, 'request_kind': request_kind, 'followup_text': body.followup_text,
+                                               'help_action': body.help_action, 'focus_question': problem,
+                                               'regenerate_of':str(body.regenerate_of) if body.regenerate_of else None,
                                                'reported_model': generation.reported_model, 'tier': body.tier, 'hint_text': generation.text, 'request_event_id': request_id,
                                                'model_latency_ms': int((time.monotonic()-began)*1000)})
     usage.finish(db, request_id)
@@ -426,6 +702,23 @@ def ai_usage(db=Depends(database), participant=Depends(user)):
     return usage.snapshot(db, participant.id, is_admin(participant.subject) or mode() == 'development')
 
 
+@app.post('/ai/requests/{event_id}/cancel')
+def cancel_answer(event_id: UUID, db=Depends(database), participant=Depends(user)):
+    request = db.get(Event, str(event_id))
+    if not request or request.user_id != participant.id or request.event_type != 'ai_hint_requested':
+        raise HTTPException(404, 'The request is still starting or is not available.')
+    session = locked(db, request.session_id, participant, False)
+    if not any(e['id']==request.id for e in in_flight(effective(timeline(db,session.id)))):
+        return {'status':'finished'}
+    draft = db.get(ResponseDraft, request.id, populate_existing=True)
+    if draft is None:
+        draft = ResponseDraft(request_id=request.id, session_id=session.id)
+        db.add(draft)
+    draft.cancelled, draft.text = True, ''
+    db.commit()
+    return {'status':'stopping'}
+
+
 @app.get('/ai/requests/{event_id}')
 def request_status(event_id: UUID, db=Depends(database), participant=Depends(user)):
     request = db.get(Event, str(event_id))
@@ -435,7 +728,9 @@ def request_status(event_id: UUID, db=Depends(database), participant=Depends(use
     events = expire_interrupted(db, session, effective(timeline(db, session.id)))
     result = next((e for e in events if e['event_type'] in ('ai_hint_delivered', 'ai_hint_failed') and e['payload'].get('request_event_id') == str(event_id)), None)
     commit(db, participant.id)
-    return {'status': 'pending' if result is None else 'delivered' if result['event_type'] == 'ai_hint_delivered' else 'failed', 'result': result}
+    draft = db.get(ResponseDraft, str(event_id))
+    return {'status': 'pending' if result is None else 'delivered' if result['event_type'] == 'ai_hint_delivered' else 'cancelled' if result['payload'].get('cancelled') else 'failed', 'result': result,
+            'preview':draft.text if draft and result is None and not draft.cancelled else '', 'stopping':bool(draft and draft.cancelled and result is None)}
 
 
 @app.get('/analytics/me')
@@ -446,6 +741,92 @@ def personal(db=Depends(database), participant=Depends(user)):
         row = refresh(db, participant.id)
     db.commit()
     return {**row.data, 'refreshed_at': timestamp(row.refreshed_at).isoformat()}
+
+
+def analysis_result(events, request_id):
+    return next((e for e in events if e['event_type'] in ('ai_analysis_delivered','ai_analysis_failed')
+                 and e['payload'].get('request_event_id')==str(request_id)),None)
+
+
+def expire_analyses(db,session,events):
+    for e in events:
+        if e['event_type']=='ai_analysis_requested' and not analysis_result(events,e['id']) and (now()-timestamp(e['created_at'])).total_seconds()>=90:
+            append(db,session,'ai_analysis_failed',{'request_event_id':e['id'],'reason':'Review interrupted. You can request a new review when ready.'})
+    return effective(timeline(db,session.id))
+
+
+@app.get('/ai/analyses/{event_id}')
+def analysis_status(event_id: UUID, db=Depends(database), participant=Depends(user)):
+    request=db.get(Event,str(event_id))
+    if not request or request.user_id!=participant.id or request.event_type!='ai_analysis_requested':
+        raise HTTPException(404,'AI review not found.')
+    session=locked(db,request.session_id,participant,False)
+    events=expire_analyses(db,session,effective(timeline(db,session.id)))
+    result=analysis_result(events,event_id)
+    db.commit()
+    return {'status':'pending' if result is None else 'delivered' if result['event_type']=='ai_analysis_delivered' else 'failed','result':result}
+
+
+@app.post('/sessions/{sid}/analysis')
+def review(sid: UUID, body: AnalysisRequest, db=Depends(database), participant=Depends(user)):
+    if sid!=body.session_id:
+        raise HTTPException(400,'The review must reference this conversation.')
+    session=locked(db,sid,participant,False)
+    if db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==session.id,ConversationDeletion.status=='pending')):
+        raise HTTPException(409, 'Conversation deletion is pending.')
+    events=expire_analyses(db,session,effective(timeline(db,session.id)))
+    if conversation_settings(events)['experience']!='chat':
+        raise HTTPException(409,'AI reviews are available in everyday chats; guided study records keep their original protocol.')
+    old=duplicate(db,body.event_id,participant,session.id,'ai_analysis_requested')
+    if old:
+        result=analysis_result(events,old.id)
+        db.commit()
+        if result and result['event_type']=='ai_analysis_delivered':return result
+        if result:raise HTTPException(502,result['payload']['reason'])
+        raise HTTPException(409,'This review is still pending.')
+    context,fingerprint,truncated=activity.analysis_context(events)
+    cached=next((e for e in reversed(events) if e['event_type']=='ai_analysis_delivered' and e['payload'].get('source_fingerprint')==fingerprint),None)
+    if cached:
+        db.commit()
+        return cached
+    if any(e['event_type']=='ai_analysis_requested' and not analysis_result(events,e['id']) for e in events):
+        db.commit()
+        raise HTTPException(409,'Another review is pending. Refresh to see its result.')
+    if not activity.overview(events)['can_review']:
+        raise HTTPException(409,'Save some thinking or get an answer before reviewing this conversation.')
+    candidates=routing.order()
+    max_attempts=min(usage.limits()['max_attempts'],len(candidates))
+    budget=provider.attempt_budget(3,context,'',[],None,None,'concise',candidates,'analysis')
+    usage.reserve(db,body.event_id,participant.id,budget,max_attempts)
+    request=append(db,session,'ai_analysis_requested',{'source_fingerprint':fingerprint,'excerpts_truncated':truncated},body.event_id)
+    request_id=request.id
+    db.commit()
+    def record_attempt(report):
+        current=locked(db,sid,participant,False)
+        report={k:v for k,v in report.items() if k!='violation_response'}
+        usage.record_attempt(db,request_id,report)
+        append(db,current,'ai_analysis_provider_attempted',{**report,'request_event_id':request_id})
+        db.commit()
+    try:
+        generation=routing.generate(3,context,'',[],None,None,None,record_attempt,'concise',max_attempts,'analysis')
+    except SQLAlchemyError:
+        raise
+    except Exception as exc:
+        session=locked(db,sid,participant,False)
+        reason=str(exc) if isinstance(exc,ValueError) else 'The review could not finish. Your conversation is saved.'
+        append(db,session,'ai_analysis_failed',{'request_event_id':request_id,'reason':reason})
+        usage.finish(db,request_id)
+        db.commit()
+        raise HTTPException(502,reason) from exc
+    session=locked(db,sid,participant,False)
+    if analysis_result(effective(timeline(db,session.id)),request_id):
+        raise HTTPException(409,'This review has already finished. Retrieve its saved result.')
+    result=append(db,session,'ai_analysis_delivered',{'request_event_id':request_id,'source_fingerprint':fingerprint,
+        'excerpts_truncated':truncated,'text':generation.text,'provider':generation.provider,'model':generation.model,
+        'reported_model':generation.reported_model,'usage':generation.usage})
+    usage.finish(db,request_id)
+    db.commit()
+    return serialize(result)
 
 
 @app.get('/analytics/research')
@@ -459,7 +840,7 @@ def research(start: datetime | None = None, end: datetime | None = None, format:
         raise HTTPException(400, 'Choose either guided or chat experience for research analysis.')
     if start and end and timestamp(start) > timestamp(end):
         raise HTTPException(400, 'Start must precede end.')
-    events = [serialize(e) for e in db.scalars(select(Event))]
+    events = [serialize(e) for e in db.scalars(privacy.consenting_events())]
     rows = reconstruct(events)  # Reconstruct complete timelines before applying date filters.
     rows = [r for r in rows if not r.get('excluded') and r.get('experience', 'guided') == experience and
             (not start or timestamp(r['started_at']) >= timestamp(start)) and

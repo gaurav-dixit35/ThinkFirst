@@ -10,6 +10,8 @@ import GuidedSessionFlow from './GuidedSessionFlow';
 import AnswerContent from './AnswerContent';
 import AnswerFeedback,{Rating} from './AnswerFeedback';
 import PracticeSupport from './PracticeSupport';
+import ConversationTitle from './ConversationTitle';
+import ConversationReview from './ConversationReview';
 
 export default function SessionFlow({id}:{id:string}) {
   const [data,setData]=useState<SessionData|null>(null);
@@ -28,7 +30,7 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [activeRequest,setActiveRequest]=useState<HintRequest|null>(null);
-  const [answerStyle,setAnswerStyle]=useState<'concise'|'detailed'>('concise');
+  const [answerStyle,setAnswerStyle]=useState<'concise'|'detailed'>(data.answer_style || 'concise');
   const [allowance,setAllowance]=useState<AIUsage|null>(null);
   const working=useRef(false);
   const recovered=useRef(false);
@@ -57,7 +59,7 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     const stored=localStorage.getItem(requestKey(id));
     if(!stored)return null;
     const value=JSON.parse(stored) as HintRequest;
-    return value.session_id===id ? value : null;
+    return value.session_id===id ? {...value,answer_style:value.answer_style || data.answer_style || 'concise'} : null;
   }
   async function run(work:()=>Promise<unknown>) {
     if(working.current)return;
@@ -82,7 +84,7 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     if(recovered.current || closed)return;
     recovered.current=true;
     try {
-      const request:HintRequest|null=unfinished?{event_id:unfinished.id,session_id:id,tier:unfinished.payload.tier_requested,provider:unfinished.payload.selected_provider || undefined,followup_text:unfinished.payload.followup_text || undefined,answer_style:unfinished.payload.answer_style || 'concise'}:savedRequest();
+      const request:HintRequest|null=unfinished?{event_id:unfinished.id,session_id:id,tier:unfinished.payload.tier_requested,provider:unfinished.payload.selected_provider || undefined,followup_text:unfinished.payload.followup_text || undefined,help_action:unfinished.payload.help_action || undefined,answer_style:unfinished.payload.answer_style || 'concise'}:savedRequest();
       if(request)void run(()=>deliver(request,Boolean(unfinished)));
     } catch {setError('Your browser could not restore the pending request. Your saved conversation is still available.');}
   },[]);
@@ -107,8 +109,9 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     const previous=requestRef.current || savedRequest();
     if(previous) {await deliver(previous,true);return;}
     if(mode==='try_myself')await saveAttempt();
-    const followup=text || (replies.length ? tier===2?'Give me one small hint for my next step, using my latest saved attempt.':'Explain the answer to the original question, taking my latest attempt into account.' : undefined);
-    await deliver({event_id:crypto.randomUUID(),session_id:id,tier,provider:'auto',answer_style:answerStyle,...(followup?{followup_text:followup}:{})});
+    const action=!text ? (tier===2?'hint':'answer') as 'hint'|'answer' : undefined;
+    const followup=text || (tier===2?'Give me a hint for the current question.':'Show an answer to the current question.');
+    await deliver({event_id:crypto.randomUUID(),session_id:id,tier,provider:'auto',answer_style:answerStyle,followup_text:followup,...(action?{help_action:action}:{})});
   }
   async function changeMode(next:ConversationMode) {
     if(next!==mode)await emitEvent(id,'conversation_mode_changed',{mode:next});
@@ -123,7 +126,7 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
   const pendingQuestion=activeRequest?.followup_text && !events.some(e=>e.id===activeRequest.event_id)?activeRequest.followup_text:null;
   const transcript=events.filter(e=>e.event_type==='session_started'||e.event_type==='attempt_submitted'||e.event_type==='ai_hint_delivered'||e.event_type==='ai_hint_requested'&&e.payload.followup_text);
   return <section className="conversation-page">
-    <header className="conversation-heading"><div><h1>Your conversation</h1><p>{closed?'Completed · saved in history':'Saved as you go. Come back whenever you like.'}</p></div>{!closed&&<button className="text-button" disabled={busy||!!unfinished||!!activeRequest} onClick={()=>void run(complete)}>Complete conversation <Check size={14}/></button>}</header>
+    <header className="conversation-heading"><div><ConversationTitle id={id} title={data.title} custom={data.custom_title} reload={reload}/><p>{closed?`${data.overview?.status_label||'Completed'} · saved in history`:'Saved as you go. Come back whenever you like.'}</p></div>{!closed&&<button className="text-button" disabled={busy||!!unfinished||!!activeRequest} onClick={()=>void run(complete)}>Complete conversation <Check size={14}/></button>}</header>
     {(error||storageError||messageStorageError)&&<div className="error" role="alert">{error||storageError||messageStorageError}<button disabled={busy} onClick={()=>void run(async()=>{await flushQueue(id);const request=requestRef.current||savedRequest();if(request)await deliver(request,true);})}>Retry sync / refresh</button></div>}
     <div className="conversation-messages" aria-label="Conversation messages">
       {transcript.map(event=>{
@@ -154,5 +157,6 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     {!closed&&<div className="conversation-options"><label>Answer length <select value={answerStyle} disabled={busy||!!activeRequest} onChange={e=>setAnswerStyle(e.target.value as 'concise'|'detailed')}><option value="concise">Concise</option><option value="detailed">Detailed</option></select></label>
       {allowance&&<span className="field-help" title={`Resets ${new Date(allowance.resets_at).toLocaleString()}. Shared service limits also apply.`}>{allowance.requests_remaining} of {allowance.daily_limit} AI requests left today · resets at {new Date(allowance.resets_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}. {allowance.requests_remaining===0?'Try myself is still available.':'Shared limits apply.'}</span>}
     </div>}
+    <ConversationReview data={data} reload={reload}/>
   </section>;
 }

@@ -1,2 +1,2 @@
-import Overview from '@/components/Overview';
-export default function Page() {return <Overview analytics/>;}
+import Progress from '@/components/Progress';
+export default function Page() {return <Progress/>;}

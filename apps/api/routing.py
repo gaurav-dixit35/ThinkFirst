@@ -43,11 +43,15 @@ def reset_cooldowns():
         _cooldowns.clear()
 
 
+class Cancelled(ValueError):
+    pass
+
+
 class Exhausted(ValueError):
     pass
 
 
-async def _generate(tier, problem, attempt, hints, preferred, conversation, followup_text, on_attempt, answer_style, max_attempts):
+async def _generate(tier, problem, attempt, hints, preferred, conversation, followup_text, on_attempt, answer_style, max_attempts, purpose, on_delta=None, cancelled=None):
     started = time.monotonic()
     budget = seconds('AI_TOTAL_TIMEOUT_SECONDS', 50, 5, 55)
     per_attempt = seconds('AI_PROVIDER_TIMEOUT_SECONDS', 9, 1, 30)
@@ -55,6 +59,8 @@ async def _generate(tier, problem, attempt, hints, preferred, conversation, foll
     attempted = 0
     configured = 0
     for index, name in enumerate(candidates, 1):
+        if cancelled and cancelled():
+            raise Cancelled("Generation stopped. Usage already incurred still counts.")
         config = provider.configuration(name)
         report = dict(attempt_index=index, provider=name, model=config['model'], outcome='skipped', error_code=None,
                       latency_ms=0, retry_after_seconds=None)
@@ -81,13 +87,30 @@ async def _generate(tier, problem, attempt, hints, preferred, conversation, foll
         usage = None
         try:
             async with asyncio.timeout(min(per_attempt, remaining)):
-                result = await provider.generate_async(tier, problem, attempt, hints, name, conversation, followup_text, answer_style)
+                if on_delta:
+                    on_delta('')  # Replace a failed provider's preview; never concatenate fallbacks.
+                args = (tier, problem, attempt, hints, name, conversation, followup_text, answer_style, purpose)
+                task = asyncio.create_task(provider.generate_async(*args, **({'on_delta':on_delta} if on_delta else {})))
+                try:
+                    while not task.done():
+                        if cancelled and cancelled():
+                            raise Cancelled('Generation stopped. Usage already incurred still counts.')
+                        await asyncio.wait({task}, timeout=0.2)
+                    result = await task
+                finally:
+                    if not task.done():
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
             with _lock:
                 _cooldowns.pop(key, None)
             on_attempt({**report, 'outcome': 'success', 'latency_ms': int((time.monotonic()-began)*1000), 'usage': result.usage})
             result.provider = name
             result.model = config['model']
             return result
+        except Cancelled:
+            on_attempt({**report, 'outcome':'failed', 'error_code':'cancelled', 'usage':None,
+                        'latency_ms':int((time.monotonic()-began)*1000)})
+            raise
         except provider.TierViolation as exc:
             usage = getattr(exc, 'usage', None)
             code, retry_after = 'tier_violation', 0
@@ -125,7 +148,7 @@ async def _generate(tier, problem, attempt, hints, preferred, conversation, foll
 
 
 def generate(tier, problem, attempt, hints, preferred=None, conversation=None, followup_text=None, on_attempt: Callable | None = None,
-             answer_style='concise', max_attempts=None):
+             answer_style='concise', max_attempts=None, purpose='answer', on_delta=None, cancelled=None):
     return asyncio.run(_generate(tier, problem, attempt, hints, preferred, conversation, followup_text,
                                 on_attempt or (lambda report: None), answer_style,
-                                max_attempts or limits()['max_attempts']))
+                                max_attempts or limits()['max_attempts'], purpose, on_delta, cancelled))

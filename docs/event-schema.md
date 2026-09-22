@@ -158,3 +158,23 @@ Accounting uses new `ai_usage_requests` and `ai_budget_lock` tables without modi
 `answer_feedback` has `answer_event_id` and `rating` (`helpful`, `not_helpful`, `cleared`). Latest feedback wins; previous events remain immutable. This event alone may be added to a completed chat without changing its status. Feedback is not a correctness assessment and does not count as research verification.
 
 A separate `user_preferences` table stores the participant's `practice_reminders` boolean. Authenticated GET/POST `/preferences` expose only the caller's preference. GET `/sessions/{id}` includes `practice` eligibility, an invitation anchor, an active practice task, and the reminder preference. See [practice support](practice-support.md) for thresholds and retry behavior.
+
+## Phase 4: history, progress and optional AI reviews
+
+`GET /history` is owner-scoped with literal `q` search (up to 200 characters), `status=all|open|completed|abandoned`, `experience=all|chat|guided`, `limit=1..50` and non-negative `offset`. It returns items, total, limit, offset and has_more. Searches ignore invalidated events. `POST /sessions/{id}/title` sets a trimmed title of 1–100 characters, or null to restore the derived title. Metadata is stored separately from the immutable original question.
+
+`GET /progress?experience=chat|guided` returns separate all-time totals, observed work combinations, and four weekly activity buckets. The default is chat; protocols are never pooled here. `GET /sessions/{id}` adds title/custom_title and an overview with factual counts and a source fingerprint.
+
+Explicit review requests use `POST /sessions/{id}/analysis` with event_id and session_id; `GET /ai/analyses/{event_id}` polls only the authenticated owner's request. `ai_analysis_requested`, `ai_analysis_provider_attempted`, `ai_analysis_delivered`, and `ai_analysis_failed` are server-owned events. Delivery records its request ID, text, source_fingerprint, excerpts_truncated, provider/model and reported usage. Request-ID replay is idempotent; an existing successful review of the same source is reused without charging another allowance. Titles, mode toggles, feedback, prior reviews and closing a chat do not invalidate an unchanged review source.
+
+AI reviews use the shared allowance ledger and conservative fallback reservations. They are not answer/hint events, do not enter practice streaks or verification denominators, and do not reopen completed chats. Guided study sessions cannot request them. Bounded input uses at most 24 recent text excerpts and 16,000 excerpt characters, plus up to 2,000 original-question characters if the original question fell outside that window. The model is told when context is incomplete and instructed not to score intelligence, dependence or cognitive health.
+
+
+## Privacy maintenance exception
+
+Privacy choices and deletion requests use separate account tables, not invented behavioral events. Existing records are not implicitly consented into research. Ordinary event writes remain append-only. An authorized conversation-erasure request may be fulfilled only by the offline operator command, with transactional trigger suspension and restoration; it removes the complete targeted conversation history rather than fabricating a correction event. Account identity, request audit, and quota accounting remain. See [privacy](privacy.md) and [operator runbook](operations.md).
+
+
+## Current-question help actions
+
+New chat AI request/answer payloads include optional `help_action` (`hint` or `answer`) and server-resolved `focus_question`. A help action does not establish a new subject. Explicit follow-up messages do. The latest independent attempt after that question is the current attempt; earlier work remains chronological background. Older generated button phrases are recognized without rewriting their stored events. Request replay checks help intent as well as question, tier, provider and answer length. Guided study retains its original hint protocol.

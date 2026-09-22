@@ -33,7 +33,7 @@ def test_chat_starts_with_answer_and_continues_without_reflection_gates(client,m
     assert client.post('/ai/hint',json=body).json()['id']==first.json()['id']
     second=client.post('/ai/hint',json={**body,'event_id':uid(),'followup_text':'Why divide by 2?'})
     assert second.status_code==200,second.text
-    assert calls[-1][5]==[{'role':'assistant','content':first.json()['payload']['hint_text']}]
+    assert calls[-1][5]==[{'role':'user','content':'Solve 2x + 3 = 11'},{'role':'assistant','content':first.json()['payload']['hint_text']}]
     assert calls[-1][6]=='Why divide by 2?'
     data=client.get('/sessions/'+sid).json()
     assert data['experience']=='chat' and data['mode']=='ask_ai'
@@ -93,6 +93,7 @@ def test_followup_requires_new_intent_and_finished_chats_cannot_change(client,mo
 
 
 def test_research_does_not_silently_pool_chat_and_guided_sessions(client,monkeypatch):
+    assert client.post('/privacy',json={'research_opt_in':True,'acknowledge_notice':True}).status_code==200
     monkeypatch.setenv('ADMIN_SUBJECTS','local-development-participant')
     before=client.get('/analytics/research').json()['session_count']
     chats=client.get('/analytics/research?experience=chat').json()['session_count']

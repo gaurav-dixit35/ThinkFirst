@@ -51,3 +51,50 @@ Remaining work is in roadmap.md. Phase 1 does not include token quotas, practice
 - PostgreSQL: eight practice checks passed against thinkfirst_test, including concurrent Yes/No submissions returning the same first decision. Synthetic provider responses only.
 - Frontend: TypeScript and production build passed. Three Chrome scenarios passed: failed No save stays dismissed through reload while chat continues; Yes focuses a useful practice step and preserves/saves the existing draft without calling AI; Settings disables/restores reminders and feedback persists/clears. The Settings scenario exposed delayed controlled-checkbox feedback; optimistic state with rollback and stale-read protection fixed it. The affected scenario then passed, including a synthetic preference-save failure.
 - Runtime: restarted the local production website and API, applied the additive preference table migration, and verified read-only API health/database connectivity and preference retrieval. Real keys were unchanged, no synthetic main-database conversations were created, and no live provider calls were made.
+
+## Phase 4 — September 16, 2026
+
+- SQLite and isolated PostgreSQL: nine Phase 4 checks passed on each. Covered text/title search, literal wildcard escaping, invalidated-text exclusion, pagination beyond 100 conversations, status/protocol/owner filters, closed-chat title edits, separated progress counts, review caching/idempotency/polling, unchanged-source reuse, changed-source generation, pre-call budget rejection, interrupted-review non-replay, real-router synthetic fallback accounting, and bounded context.
+- After excluding mode-only changes from review fingerprints and retaining a bounded original question when excerpts omit it, both affected tests passed again.
+- Regression: 28 chat/routing checks passed. TypeScript and production build passed.
+- Chrome: all six focused checks passed. Four new scenarios verify history search/pagination/rename persistence, an explicitly requested review recovering a lost HTTP response with only one generation, pending-review polling without a POST, and protocol-separated progress/empty states on mobile. Two existing synthetic scenarios verify answer rendering/copy safety and allowance failure preserving independent work after the shared request helper was generalized.
+- Runtime: the updated local API and production website were started. The migration adds conversation title metadata without rewriting historical questions. No live provider requests or synthetic main-database conversations were made; real keys were unchanged. Hosted identity and launch-readiness work remain Phase 5.
+
+
+## Phase 5 validation (local, 2026-09-16)
+
+- 20 privacy, signed-JWT and chat checks passed on isolated SQLite data. Another 25 existing API/history checks passed; one PostgreSQL-only legacy check was skipped in that SQLite run.
+- All five new privacy checks passed on the isolated PostgreSQL test database, including exact-target erasure, rollback restoring event protection, other-account preservation, request replay safety, and retained usage accounting.
+- TypeScript and the final production build passed. Seven focused Chrome scenarios passed across privacy and existing practice support. The initial consent check exposed delayed checkbox feedback, which was fixed with save-failure rollback. One test alert selector was narrowed to avoid matching Next.js's route announcer.
+- A binary backup of synthetic `thinkfirst_test` data restored into new `thinkfirst_restore_phase5_20260916`. Six table counts matched; the restored event trigger rejected deletion; restored API health and history reads succeeded. The original database was not replaced. The ignored backup remains in `backups/phase5-test-20260916.dump`; no real participant backup was created.
+- The production Compose template passed configuration validation using placeholders. Container images, TLS, and public hosting were not deployed or verified.
+- The rebuilt website and updated API are running locally. Read-only checks confirmed Settings, health, database connectivity, and the privacy endpoint/no-store response. Existing .env keys and main participant conversation records were preserved. No live AI calls were made.
+
+Still required before a pilot: production Clerk credentials/URLs and real two-account sign-in verification; container/host deployment and TLS; configured encrypted backup scheduling/expiry; a published support contact and deletion response schedule; and a deliberately bounded live provider/fallback check. See [operations](operations.md).
+
+
+## Chat-context and Settings follow-up
+
+Reproduced the supplied phone → multiplication → saved `45` sequence using synthetic replies. New API checks verify repeated hints and answers stay on `5*9`, old generated help-button phrases remain compatible, a genuinely new question does not inherit the previous current attempt, and help intent participates in request replay validation. Answer-length defaults are owner-scoped and included in personal export.
+
+Twenty-five focused chat/context/history/practice API checks passed on isolated SQLite (one existing PostgreSQL concurrency check skipped). TypeScript and the production build passed. Twelve focused browser scenarios passed after correcting two test selectors; they cover saved answer defaults, current-question hint intent, privacy export/deletion, reminders, history/review recovery, and protocol-separated mobile progress. Visual review additionally caught a CSS max-width rule collapsing Recharts drawing areas; removing it restored the drawing width, and the chart check now asserts real drawing-area widths as well as axes/points. No provider credits were used.
+
+The local PostgreSQL container had stopped because Docker Desktop was not running. Restarted Docker Desktop and the existing `res-db-1` container without recreating its volume; the updated API then started successfully. Read-only health, preferences, and progress endpoint checks passed. Existing keys and conversations were preserved. Real hosted Clerk sign-in is still unverified because the required configuration is absent; see [operations](operations.md).
+
+## Predeployment preparation
+
+- The complete backend regression run passed: 122 passed, three PostgreSQL-only cases skipped on SQLite. Seven focused deployment checks then passed on isolated PostgreSQL, including transactional runtime grants, denial of history deletion/truncation/trigger changes/DDL, URL/port handling, schema readiness, secret-free diagnostics and request references. Temporary role/grant checks rolled back; the main participant database was not used for fixtures.
+- Two hosted-environment guard checks passed. The final Next.js production build/type checks passed. Fourteen focused Chrome scenarios passed across public help/privacy without account access, support error references, history/review recovery, mobile progress, practice controls and existing privacy/settings behavior. Browser responses were synthetic.
+- `npm audit --omit=dev` reported zero known vulnerabilities; `pip check` found no broken installed requirements. This is a point-in-time dependency check, not a comprehensive security audit. The Python test harness reports two upstream deprecation warnings.
+- The configuration-only launch checker correctly flags the current local development environment: hosted identity/origins, restricted database credentials, operator/contact/admin identity, dollar ceiling and a fixed OpenRouter model still need deployment settings. No secrets are printed and no provider request is made by that checker.
+- Restarted the local API and built web server. Read-only `/health`, `/service-info`, `/help` and `/privacy` requests returned 200 and the expected response headers. Existing real `.env` keys and conversation records were preserved. No live AI calls or external deployment were made.
+
+Complete the [deployment handoff checklist](deployment-checklist.md) with real host credentials, domains, backups/alerts and the two-account/live-provider walkthrough before public use.
+
+### Container verification completed — 2026-09-17
+
+After Docker Desktop disconnected during the first image build, restarted Docker and the existing PostgreSQL container without replacing its volume. The final seven deployment checks passed on isolated PostgreSQL, including the added missing-grant detection. Six checks also passed on SQLite with the PostgreSQL-specific case skipped.
+
+Built `thinkfirst-api:predeploy` successfully from `apps/api/Dockerfile`. An isolated container with networking disabled, no real credentials and a temporary SQLite database confirmed UID 10001, no copied `.env` or configured AI credentials, startup through `apps.api.serve`, the custom `PORT=48765`, and a successful health response with a request reference. The temporary container was removed automatically. This validates the Linux API image and entrypoint; the hosted PostgreSQL/Clerk combination still requires the deployment walkthrough. The optional Docker web image was not built; the intended Netlify website has passed its local production build.
+
+The local web/API servers are running again. Read-only health, help and privacy checks returned 200. No live model calls were made, and the original environment keys and participant records were preserved.

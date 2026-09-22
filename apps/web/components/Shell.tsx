@@ -6,7 +6,7 @@ import {ChartNoAxesCombined, History, Plus, Settings2} from 'lucide-react';
 export default function Shell({children}:{children:React.ReactNode}) {
   const path=usePathname();
   const isNew=path==='/'||path==='/new';
-  const title=path.startsWith('/session')?'Conversation':path==='/history'?'History':path==='/dashboard'?'Progress':path==='/settings'?'Settings':path==='/research'?'Research':'New conversation';
+  const title=path.startsWith('/session')?'Conversation':path==='/history'?'History':path==='/dashboard'?'Progress':path==='/settings'?'Settings':path==='/research'?'Research':path==='/help'?'Help':path==='/privacy'?'Privacy':'New conversation';
   return <div className="app-shell"><aside className="sidebar simple-sidebar">
     <Link className="brand" href="/"><img className="brand-logo" src="/logo.png" alt="" width={38} height={38}/>ThinkFirst</Link>
     <nav aria-label="Main navigation">{[

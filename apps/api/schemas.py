@@ -59,6 +59,28 @@ class Preferences(Strict):
     practice_reminders: bool = Field(strict=True)
 
 
+class AnswerPreference(Strict):
+    answer_style: Literal['concise', 'detailed']
+
+
+class PrivacyChoices(Strict):
+    research_opt_in: bool = Field(strict=True)
+    acknowledge_notice: bool = Field(default=False, strict=True)
+
+
+class DeleteConversations(Strict):
+    confirmation: Literal['DELETE MY CONVERSATIONS']
+
+
+class ConversationTitle(Strict):
+    title: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class AnalysisRequest(Strict):
+    event_id: UUID
+    session_id: UUID
+
+
 PAYLOADS = {'attempt_submitted': Attempt, 'attempt_skipped': Skip,
             'verification_submitted': Verification, 'verification_skipped': VerificationSkip,
             'evaluation_submitted': Evaluation, 'evaluation_skipped': Strict,
@@ -89,6 +111,23 @@ class Hint(Strict):
     provider: Literal['auto', 'gemini', 'groq', 'openrouter', 'mistral', 'cloudflare', 'anthropic'] | None = None
     followup_text: str | None = Field(default=None, min_length=1, max_length=5000)
     answer_style: Literal['concise', 'detailed'] = 'concise'
+    help_action: Literal['hint', 'answer'] | None = None
+    stream: bool = Field(default=False, strict=True)
+    regenerate_of: UUID | None = None
+
+
+class ArchiveConversation(Strict):
+    archived: bool = Field(strict=True)
+
+
+class DeleteConversation(Strict):
+    confirmation: Literal['DELETE THIS CONVERSATION']
+
+
+class EditQuestion(Strict):
+    event_id: UUID
+    source_event_id: UUID
+    question: str = Field(min_length=1, max_length=20000)
 
 
 class Close(Strict):

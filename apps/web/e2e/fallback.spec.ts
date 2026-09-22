@@ -30,7 +30,7 @@ test('direct answer, follow-up and optional thinking share one conversation',asy
   expect(data.events.some((e:any)=>e.event_type==='ai_provider_attempted'&&e.payload.provider==='groq'&&['failed','skipped'].includes(e.payload.outcome))).toBe(true);
   expect(data.events.some((e:any)=>e.event_type==='verification_skipped')).toBe(false);
   await page.getByRole('button',{name:'Complete conversation'}).click();
-  await expect(page.getByText('Completed · saved in history')).toBeVisible();
+  await expect(page.getByText(/Completed.*saved in history/)).toBeVisible();
   await expect(page.locator('.conversation-messages')).toContainText('Why subtract from both sides?');
 });
 
@@ -53,7 +53,7 @@ test('lost HTTP response recovers without duplicate generation',async({page,requ
 
 test('refresh recovers a pending answer without a second request',async({page,request})=>{
   await start(page);
-  await expect(page.getByRole('heading',{name:'Your conversation',exact:true})).toBeVisible();
+  await expect(page.locator('.conversation-heading h1')).toBeVisible();
   const sid=page.url().split('/').at(-1);
   await expect.poll(async()=> (await (await request.get(`http://localhost:8002/sessions/${sid}`)).json()).summary.ai_requests).toBe(1);
   await page.reload();

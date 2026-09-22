@@ -1,7 +1,7 @@
 'use client';
 import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 import {Rollup} from '@/lib/api';
-export default function Patterns({data}: {data: Rollup | null}) {
-  const charts = [{key: 'ai_first_ratio', title: 'AI-first sessions', unit: '%'}, {key: 'verification_rate', title: 'Verification rate', unit: '%'}, {key: 'time_to_ai_seconds', title: 'Time before asking AI', unit: 'sec'}];
+export default function Patterns({data,guided=true}: {data: Pick<Rollup,'trend'> | null;guided?:boolean}) {
+  const charts = [{key: 'ai_first_ratio', title: 'AI-first sessions', unit: '%'}, ...(guided?[{key: 'verification_rate', title: 'Verification rate', unit: '%'}]:[]), {key: 'time_to_ai_seconds', title: 'Time before asking AI', unit: 'sec'}];
   return <div className="charts-grid">{charts.map(c => <section className="chart-card" key={c.key}><h3>{c.title}</h3><p>Weekly observations · {c.unit}</p>{data?.trend.some(r => r[c.key as keyof typeof r] != null) ? <ResponsiveContainer width="100%" height={230}><LineChart data={data.trend.map(row => ({...row, value: row[c.key as keyof typeof row] == null ? null : Number(row[c.key as keyof typeof row]) * (c.unit === '%' ? 100 : 1)}))}><CartesianGrid strokeDasharray="3 5" vertical={false}/><XAxis dataKey="week" tick={{fontSize: 10}}/><YAxis tick={{fontSize: 11}} domain={c.unit === '%' ? [0,100] : [0,'auto']}/><Tooltip/><Line type="monotone" dataKey="value" name={c.title} stroke="#60784c" strokeWidth={2} dot={{r:4}} connectNulls={false}/></LineChart></ResponsiveContainer> : <div className="chart-empty">{data ? 'Your observations will appear here after a relevant session.' : 'Loading observations…'}</div>}</section>)}</div>;
 }

@@ -1,2 +1,4 @@
 import Link from 'next/link';
-export default function NotFound(){return <div className="narrow-page"><h1>This page isn’t here.</h1><p className="lead">Return to your workspace to find your sessions.</p><Link href="/" className="primary">Back to overview</Link></div>;}
+export default function NotFound() {
+  return <section className="connection-state"><h1>That page isn’t here.</h1><p>The link may be incomplete or out of date.</p><Link className="primary" href="/">Back to ThinkFirst</Link></section>;
+}

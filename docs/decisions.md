@@ -44,3 +44,22 @@ Practice invitations use delivered-answer streaks, not request attempts or infer
 Yes changes mode atomically with the decision, with a domain-specific practice suggestion attached to the invitation's question. No does not gate another AI request. Reminder preferences are owner-scoped and stored separately from behavioral events. Optional decision and feedback saves stay outside the required offline event queue; a failed optional save cannot block sending another question. Local account-scoped dismissal survives reload when a practice decision cannot sync.
 
 Helpful/Not helpful feedback is editable, including on completed chats. Feedback and practice choices do not fabricate attempts, skips, verification, correctness, or dependency scores. Guided study sessions retain their original protocol.
+
+## Phase 4: searchable history and evidence-based activity views
+
+History moved to a paginated, owner-scoped query with literal substring search across titles and effective conversation text. Title metadata is separate from the original research question; default titles are deterministic. Status labels distinguish open, completed and abandoned work. Progress uses separate chat/guided cohorts and describes saved actions rather than research proxy scores. The legacy analytics API remains available for compatibility, while the everyday dashboard uses the new progress endpoint.
+
+Deeper review is an explicit per-conversation action with distinct server-owned events. It reuses the existing quota/fallback ledger, persists request IDs, recovers by polling, caches unchanged source snapshots, and marks old reviews when relevant activity changes. Cosmetic titles, mode toggles and feedback do not waste another review request. Review prompts distinguish participant text from model answers, disclose bounded context, and prohibit invented cognitive/ability assessments. Reviews do not silently enter hint metrics or practice streaks.
+
+
+## Phase 5: privacy without rewriting behavior
+
+Research opt-in lives in a separate account privacy table and defaults to false; both research export paths filter it. Hosted notice acknowledgment is distinct from optional consent. Conversation deletion is a user-originated pending request, fulfilled offline with exact request/account IDs while all API replicas are stopped. It removes that account's conversation rows transactionally and retains identity, quota accounting and a deletion audit. Ordinary event updates/deletes remain forbidden. This explicit exception replaces any blanket claim that immutable study records can never be erased. See [privacy](privacy.md) for retention and external-copy limitations.
+
+Browser recovery state now uses account keys; only shared development may migrate older unscoped drafts. A completed deletion timestamp clears stale local work on reconnect. Production account verification and deployment are separate launch gates, not inferred from synthetic JWT or browser tests.
+
+## Predeployment: separate runtime access from operator access
+
+Production boot verifies schema and a restricted PostgreSQL role instead of issuing DDL. Transactional operator migrations hold a database advisory lock, then an explicit grant command equips a separate existing login. The live API cannot own tables, create schema objects, truncate tables or mutate event history. Migration, backup and erasure credentials stay outside the running service. Development retains automatic schema setup for the existing local workflow.
+
+Netlify gets the Next.js build config and only web/Clerk settings; Railway gets the API image, runtime database URL and provider secrets. Launch checks do not call AI. They require explicit operator/contact/budget choices and flag unbounded OpenRouter auto-model routing. Public help/privacy bypass account loading, so users can read them during sign-in problems. Error references map to logs containing route templates and exception classes; no prompts, query strings or exception values are logged by the app middleware.

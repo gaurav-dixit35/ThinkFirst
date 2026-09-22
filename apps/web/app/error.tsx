@@ -1,2 +1,5 @@
 'use client';
-export default function ErrorPage({reset}:{reset:()=>void}){return <div className="connection-state"><h1>This page needs another try.</h1><p>Your saved sessions are still there. Reload this view to continue.</p><button className="primary" onClick={reset}>Try again</button></div>;}
+import Link from 'next/link';
+export default function ErrorPage({reset}: {error:Error & {digest?:string};reset:()=>void}) {
+  return <section className="connection-state" role="alert"><h1>This page couldn’t open.</h1><p>Try opening it again. You can also return to your saved conversations.</p><div className="settings-actions"><button className="primary" onClick={reset}>Try again</button><Link className="secondary" href="/history">Open history</Link><Link href="/help">Get help</Link></div></section>;
+}

@@ -6,6 +6,11 @@ __pycache__/
 *.pyc
 .env
 .env.local
+.env.*
+!.env.example
+!*.env.example
+backups/
+*.dump
 *.db
 exports/
 apps/web/tsconfig.tsbuildinfo

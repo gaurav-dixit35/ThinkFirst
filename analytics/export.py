@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy import select
 from apps.api.db import Event, ResearchExport, SessionLocal, User
 from apps.api.main import refresh, serialize
+from apps.api.privacy import consenting_events
 from .etl import reconstruct, user_frame
 from .stats import analyze
 
@@ -16,7 +17,7 @@ def main():
     args=parser.parse_args()
     path=Path(args.output);path.mkdir(parents=True,exist_ok=True)
     with SessionLocal() as db:
-        events=[serialize(e) for e in db.scalars(select(Event))]
+        events=[serialize(e) for e in db.scalars(consenting_events())]
         rows=[r for r in reconstruct(events) if r.get('experience','guided')==args.experience]
         frame=user_frame(rows)
         output=analyze(frame)

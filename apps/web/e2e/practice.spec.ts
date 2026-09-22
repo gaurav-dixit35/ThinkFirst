@@ -10,6 +10,8 @@ async function fixture(page:Page,failDecision=false){
     const request=route.request(),path=new URL(request.url()).pathname;
     let data:any;
     if(path==='/me')data={id:'practice-user',display_name:'Fixture',admin:false,development:false};
+    else if(path==='/preferences/answers')data={answer_style:'concise'};
+    else if(path==='/privacy')data={acknowledged:true,research_opt_in:false,notice_version:'fixture',last_erased_at:null,deletion_request:null};
     else if(path==='/ai/usage')data={daily_limit:30,requests_used:3,requests_remaining:27,resets_at:'2099-01-01T00:00:00Z'};
     else if(path==='/preferences'){
       if(request.method()==='POST')reminders=request.postDataJSON().practice_reminders;
@@ -54,7 +56,7 @@ test('No stays dismissed after reload; even a failed optional save never blocks 
 
 test('Yes preserves the draft, opens useful practice and does not call AI',async({page})=>{
   const calls=await fixture(page);
-  await page.addInitScript(({sid})=>localStorage.setItem(`thinkfirst.draft.${sid}`,JSON.stringify({attempt:'My existing idea: trace one iteration.',partial:true})),{sid});
+  await page.addInitScript(({sid})=>localStorage.setItem(`thinkfirst.draft.practice-user.${sid}`,JSON.stringify({attempt:'My existing idea: trace one iteration.',partial:true})),{sid});
   await page.goto(`/session/${sid}`);
   await page.getByRole('button',{name:'Yes, I’ll try',exact:true}).click();
   await expect(page.getByLabel('Practice step')).toContainText('What output do you expect');

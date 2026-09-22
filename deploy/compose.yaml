@@ -1,0 +1,33 @@
+# Start with: docker compose --env-file .env.production -f deploy/compose.yaml up -d --build
+# A host TLS reverse proxy serves these loopback ports. PostgreSQL is managed separately.
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    env_file: ../.env.production
+    environment:
+      ENVIRONMENT: production
+      AUTH_MODE: clerk
+      AUTO_MIGRATE: "false"
+      DATABASE_URL: ${DATABASE_URL:?Set the production PostgreSQL connection string}
+      CLERK_ISSUER: ${CLERK_ISSUER:?Set the production Clerk issuer}
+      WEB_ORIGINS: ${WEB_ORIGINS:?Set the exact HTTPS website origin}
+    ports: ["127.0.0.1:8000:8000"]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set the HTTPS API URL}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set the production Clerk publishable key}
+    environment:
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set the production Clerk secret key}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]

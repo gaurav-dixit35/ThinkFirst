@@ -21,7 +21,7 @@ def state(events, enabled=True, closed=False, at=None):
     start = next(e for e in events if e['event_type'] == 'session_started')
     mode = start['payload'].get('initial_mode', 'ask_ai')
     streak, decisions, anchor, last_decision, active = 0, 0, None, None, None
-    questions = {e['id']: e['payload'].get('followup_text') for e in events if e['event_type'] == 'ai_hint_requested'}
+    questions = {e['id']: e['payload'].get('focus_question') or e['payload'].get('followup_text') for e in events if e['event_type'] == 'ai_hint_requested'}
     for event in events:
         kind, payload = event['event_type'], event['payload']
         if kind == 'conversation_mode_changed':
@@ -44,7 +44,7 @@ def state(events, enabled=True, closed=False, at=None):
                 and (last_decision is None or at >= last_decision + timedelta(minutes=10)))
     target_id = active or anchor
     answer = next((e for e in events if e['id'] == target_id), None)
-    question = (answer['payload'].get('followup_text') or questions.get(answer['payload'].get('request_event_id'))) if answer else None
+    question = (answer['payload'].get('focus_question') or questions.get(answer['payload'].get('request_event_id')) or answer['payload'].get('followup_text')) if answer else None
     return dict(eligible=bool(eligible), answer_event_id=anchor if eligible else None,
                 reminders_enabled=enabled, active=bool(active and mode == 'try_myself' and not closed),
                 question=question or start['payload']['problem_text'],

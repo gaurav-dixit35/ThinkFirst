@@ -93,3 +93,16 @@ After three AI answers without your own attempt, ThinkFirst may ask whether you 
 Invitations wait at least ten minutes and three more AI answers after a decision; at most two can be answered per conversation. Turn them off from the invitation or from **Settings → Practice reminders**. The preference is saved to your account. These rules use counters and saved events, so they spend no AI tokens.
 
 Use the thumbs under an answer to mark it Helpful or Not helpful. Click the selected thumb again to clear your rating. Feedback is optional and can be changed later; it is not a correctness grade or a required step.
+
+## Finding your work and understanding activity
+
+History searches conversation titles, original questions, saved thinking, follow-ups and delivered answers. Use status and conversation-type filters, then Previous/Next to reach older work. You can rename a chat from its heading, including after completion; the original question stays in its transcript. Titles are created from your question without AI.
+
+Progress now defaults to everyday chats, with a separate guided-study view. It shows saved attempts, received answers, self-reported completion, how often a conversation contains your thinking and/or AI answers, and recent weekly activity. None of these counts is a measure of intelligence or dependence.
+
+Open **Review this conversation** in a chat for its factual activity summary. **Generate AI review** is optional and uses one AI request. It looks at bounded conversation excerpts and suggests a possible next step. Reopening a saved review does not regenerate it. When relevant activity changes, the previous review stays visible and you can explicitly choose **Review new activity**. Reviews can make mistakes and may not include the full history.
+
+
+### Your data choices
+
+ThinkFirst keeps history so you can return to your work. Research sharing is now off until you turn it on in Settings. Hosted users first see a plain-language data notice; continuing does not opt them into research. Settings also lets you download your own data or explicitly request conversation deletion. Deletion is processed by the operator, so the app shows a pending request until it is actually completed. No AI tokens are used for these controls. See [privacy and retention](privacy.md).

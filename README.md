@@ -46,11 +46,11 @@ Next.js **15.5.25** replaces the requested 14 baseline because current security 
 
 ## Authentication and production configuration
 
-Create a Clerk application. Set `AUTH_MODE=clerk`, `ENVIRONMENT=production`, `CLERK_ISSUER=https://<your-clerk-domain>`, and `WEB_ORIGINS=https://<your-web-host>` in the API environment. Set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_API_URL` in `apps/web/.env.local` or the web host environment, then rebuild. Clerk handles sign-in and signup through its modal.
+Create a Clerk application. Set `AUTH_MODE=clerk`, `ENVIRONMENT=production`, `CLERK_ISSUER=https://<your-clerk-domain>`, and `WEB_ORIGINS=https://<your-web-host>` in the API environment. Set `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and `NEXT_PUBLIC_API_URL` in `apps/web/.env.local` or the web host environment, then rebuild. Clerk handles sign-in and signup through its modal.
 
 `ADMIN_SUBJECTS` is a comma-separated allowlist of Clerk subject IDs. The local development subject is `local-development-participant`; allowlisting it is useful only for local research previews. API access checks are authoritative even if a client bypasses a screen.
 
-For Vercel, set the project root to `apps/web`, build with `npm run build`, and configure the public API URL and Clerk publishable key. For Render/Railway, deploy `apps/api/Dockerfile` from repository root, attach PostgreSQL, set the API environment variables above and your selected provider key, and use `/health` as health check. Adapt the Docker start command to the host-provided port if required. Database tables and append-only triggers are created at startup. Provision a separate migration owner and restrict application DDL privileges for a hardened public deployment.
+The recommended deployment is Netlify for the website and Railway for the API/PostgreSQL, with Clerk for sign-in. Start with the [deployment handoff checklist](docs/deployment-checklist.md) and separate environment inventories in `deploy/`. Root `netlify.toml` configures the website build. The API Docker image reads the host-provided `PORT`; use `/health` for readiness. Prepare schema and runtime grants separately using `python -m apps.api.migrate` and `python -m apps.api.permissions` with the owner connection. Production uses a restricted database login and `AUTO_MIGRATE=false`; only development creates tables on startup. Run `python -m apps.api.deployment --database` for read-only launch checks. Hosted credentials and live behavior still need verification during deployment.
 
 Live provider checks have succeeded locally; see the validation record for provider-specific results. Cloud deployment and hosted Clerk sign-in remain unverified. Phase 7 adaptive friction remains an explicitly deferred stretch goal.
 
@@ -115,3 +115,17 @@ Defaults work without changing existing keys. The optional estimated-dollar cap 
 ## Optional practice support
 
 Phase 3 adds gentle Yes/No practice invitations after repeated AI answers, a saved reminder preference in Settings, a cooldown, and editable Helpful/Not helpful answer feedback. Accepting opens a relevant practice step while preserving your draft; declining leaves chat available. None of these controls call an AI provider. See [practice support](docs/practice-support.md).
+
+## History and progress
+
+Phase 4 adds searchable, paginated history; editable conversation titles; clear completion labels; and a progress page that separates everyday chats from guided study data. Each chat has a factual activity summary and an optional AI review with saved results, source-change detection, and the existing usage limits. Search, titles, progress and opening saved reviews do not call a model. See [history and progress](docs/history-progress.md).
+
+
+## Privacy and pilot operations
+
+Phase 5 adds optional research sharing (off by default), a hosted data notice, personal JSON exports, explicit conversation-deletion requests, account-scoped browser drafts, stricter signed-session checks, and operator support. Normal events remain append-only; authorized deletion runs through a separate offline maintenance command.
+
+See [data choices and retention](docs/privacy.md) and [deployment, backups, recovery, and support](docs/operations.md). Local checks do not verify a real hosted Clerk account or launch the site. Configure production Clerk/URLs, publish a support and retention policy, and complete the hosted walkthrough before inviting pilot users.
+
+
+Settings now groups account controls, saved answer-length defaults, practice reminders, allowance, privacy, and connection help. Progress charts are restored with separate chat and guided-study views. Hint/answer buttons follow the latest question after a topic change. See [the chat review](docs/chat-review.md) for the diagnosed issue, implemented changes, and remaining launch requirements.

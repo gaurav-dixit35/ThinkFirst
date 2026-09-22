@@ -9,7 +9,7 @@ async function ownConversation(page:Page,question:string) {
   await page.getByLabel('Your question',{exact:true}).fill(question);
   await page.locator('.question-composer').getByRole('button',{name:'Try myself',exact:true}).click();
   await page.getByRole('button',{name:'Start thinking',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Your conversation',exact:true})).toBeVisible();
+  await expect(page.locator('.conversation-heading h1')).toBeVisible();
 }
 
 test('question-first home uses the supplied logo and has no provider controls',async({page})=>{
@@ -27,7 +27,7 @@ test('independent completion needs no AI or reflection form',async({page})=>{
   await page.getByRole('button',{name:'Save my thinking'}).click();
   await expect(page.locator('.own-attempt')).toHaveCount(1);
   await page.getByRole('button',{name:'Complete conversation'}).click();
-  await expect(page.getByText('Completed · saved in history')).toBeVisible();
+  await expect(page.getByText(/Completed.*saved in history/)).toBeVisible();
 });
 
 test('offline attempts sync once and other navigation preserves the conversation',async({page,context,request})=>{
@@ -66,7 +66,7 @@ test('direct AI failure is recoverable without showing infrastructure controls',
   await expect(page.locator('main [role="alert"]')).toContainText('AI could not reply right now');
   await expect(page.getByRole('region',{name:'AI connection'})).toHaveCount(0);
   await page.getByRole('button',{name:'Complete conversation'}).click();
-  await expect(page.getByText('Completed · saved in history')).toBeVisible();
+  await expect(page.getByText(/Completed.*saved in history/)).toBeVisible();
 });
 
 test('mobile home fits and historical guided sessions still open',async({page,request})=>{
