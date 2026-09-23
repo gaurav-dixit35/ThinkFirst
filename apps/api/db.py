@@ -52,6 +52,26 @@ class AnswerPreferences(Base):
     answer_style: Mapped[str] = mapped_column(String, default='concise')
 
 
+class LearningPreferences(Base):
+    __tablename__ = 'learning_preferences'
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id'), primary_key=True)
+    answer_language: Mapped[str] = mapped_column(String(16), default='auto')
+    goal: Mapped[str] = mapped_column(String(160), default='')
+    weekly_target: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class SupportReport(Base):
+    __tablename__ = 'support_reports'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    category: Mapped[str] = mapped_column(String(24))
+    message: Mapped[str] = mapped_column(String(2000))
+    reference: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default='open')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class DeletionRequest(Base):
     __tablename__ = 'deletion_requests'
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

@@ -4,6 +4,7 @@ LEGACY_ACTIONS = {
     'Explain the answer to the original question, taking my latest attempt into account.': 'answer',
 }
 ACTION_TEXT = {
+    'exercise': 'Create one new, related practice question for me to try. Do not include its answer or worked solution.',
     'hint': 'Give one useful hint for the current question, considering my saved attempt. If my attempt is already correct, help me check why rather than inventing a mistake.',
     'answer': 'Explain the answer to the current question, considering my saved attempt.',
 }
@@ -15,6 +16,8 @@ def focus(events):
         p = event['payload']
         if event['event_type'] == 'session_started':
             question, boundary = p['problem_text'], index
+        elif event['event_type'] == 'ai_hint_delivered' and p.get('help_action') == 'exercise':
+            question, boundary = p['hint_text'], index
         elif event['event_type'] == 'ai_hint_requested' and p.get('followup_text') and not p.get('help_action') and not p.get('regenerate_of') and p['followup_text'] not in LEGACY_ACTIONS:
             question, boundary = p['followup_text'], index
     return question, boundary

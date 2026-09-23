@@ -12,6 +12,7 @@ import AnswerFeedback,{Rating} from './AnswerFeedback';
 import PracticeSupport from './PracticeSupport';
 import ConversationTitle from './ConversationTitle';
 import ConversationReview from './ConversationReview';
+import ConversationTools,{EditQuestion} from './ConversationTools';
 
 export default function SessionFlow({id}:{id:string}) {
   const [data,setData]=useState<SessionData|null>(null);
@@ -26,6 +27,8 @@ export default function SessionFlow({id}:{id:string}) {
 
 function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>}) {
   const id=data.id;
+  const [preview,setPreview]=useState(''),[notice,setNotice]=useState(''),[stopping,setStopping]=useState(false);
+  const [matches,setMatches]=useState<string[]>([]);
   const mode=data.mode || 'ask_ai';
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
@@ -44,9 +47,11 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
   const replies=events.filter(e=>e.event_type==='ai_hint_delivered');
   const requests=events.filter(e=>e.event_type==='ai_hint_requested');
   const unfinished=requests.find(e=>!events.some(r=>['ai_hint_delivered','ai_hint_failed'].includes(r.event_type)&&r.payload.request_event_id===e.id));
-  const closed=data.status==='closed';
+  const closed=data.status==='closed'||Boolean(data.deletion_pending);
   const attemptInput=useRef<HTMLTextAreaElement>(null);
   useEffect(()=>{if(data.practice?.active&&mode==='try_myself')attemptInput.current?.focus();},[data.practice?.active,mode]);
+  const savedAnswers=new Map<string,boolean>();
+  events.filter(e=>e.event_type==='answer_saved').forEach(e=>savedAnswers.set(e.payload.answer_event_id,e.payload.saved));
   const feedback=new Map<string,Rating>();
   events.filter(e=>e.event_type==='answer_feedback').forEach(e=>feedback.set(e.payload.answer_event_id,e.payload.rating));
   useEffect(()=>{
@@ -63,18 +68,20 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
   }
   async function run(work:()=>Promise<unknown>) {
     if(working.current)return;
-    working.current=true;setBusy(true);setError('');
+    working.current=true;setBusy(true);setError('');setNotice('');
     try {await work();await reload();}
     catch(e) {
-      setError(e instanceof ApiError && e.status===502 ? 'AI could not reply right now. Your conversation is saved. Please try again shortly.' : (e as Error).message);
+      if(e instanceof ApiError&&e.status===499)setNotice(e.message);
+      else setError(e instanceof ApiError && e.status===502 ? 'AI could not reply right now. Your conversation is saved. Please try again shortly.' : (e as Error).message);
       try {await reload();} catch { /* Keep the action error and local drafts. */ }
     } finally {working.current=false;setBusy(false);}
   }
   async function deliver(request:HintRequest,resume=false) {
     await flushQueue(id);
-    requestRef.current=request;setActiveRequest(request);
+    request={...request,stream:true};
+    requestRef.current=request;setActiveRequest(request);setPreview('');setStopping(false);
     try {
-      await completeHint(request,resume);
+      await completeHint(request,resume,setPreview);
       if(request.followup_text===messageRef.current)setMessage('');
     } finally {
       if(!localStorage.getItem(requestKey(id))) {requestRef.current=null;setActiveRequest(null);}
@@ -84,7 +91,7 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     if(recovered.current || closed)return;
     recovered.current=true;
     try {
-      const request:HintRequest|null=unfinished?{event_id:unfinished.id,session_id:id,tier:unfinished.payload.tier_requested,provider:unfinished.payload.selected_provider || undefined,followup_text:unfinished.payload.followup_text || undefined,help_action:unfinished.payload.help_action || undefined,answer_style:unfinished.payload.answer_style || 'concise'}:savedRequest();
+      const request:HintRequest|null=unfinished?{event_id:unfinished.id,session_id:id,tier:unfinished.payload.tier_requested,provider:unfinished.payload.selected_provider || undefined,followup_text:unfinished.payload.followup_text || undefined,help_action:unfinished.payload.help_action || undefined,regenerate_of:unfinished.payload.regenerate_of||undefined,stream:true,answer_style:unfinished.payload.answer_style || 'concise'}:savedRequest();
       if(request)void run(()=>deliver(request,Boolean(unfinished)));
     } catch {setError('Your browser could not restore the pending request. Your saved conversation is still available.');}
   },[]);
@@ -113,6 +120,22 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     const followup=text || (tier===2?'Give me a hint for the current question.':'Show an answer to the current question.');
     await deliver({event_id:crypto.randomUUID(),session_id:id,tier,provider:'auto',answer_style:answerStyle,followup_text:followup,...(action?{help_action:action}:{})});
   }
+  async function relatedExercise(){
+    const previous=requestRef.current||savedRequest();
+    if(previous){await deliver(previous,true);return;}
+    await saveAttempt();
+    await deliver({event_id:crypto.randomUUID(),session_id:id,tier:3,provider:'auto',answer_style:'concise',help_action:'exercise',followup_text:'Give me one related practice question without the answer.'});
+  }
+  async function stop() {
+    if(!activeRequest||stopping)return;setStopping(true);setError('');
+    try {for(let i=0;i<6;i++){try{await api(`/ai/requests/${activeRequest.event_id}/cancel`,{});setPreview('');return;}catch(e){if(!(e instanceof ApiError)||e.status!==404||i===5)throw e;await new Promise(resolve=>setTimeout(resolve,350));}}}
+    catch(e){setError((e as Error).message);setStopping(false);}
+  }
+  async function regenerate(answerId:string) {
+    const answer=events.find(e=>e.id===answerId)!;
+    const original=events.find(e=>e.id===answer.payload.request_event_id)!;
+    await deliver({event_id:crypto.randomUUID(),session_id:id,tier:original.payload.tier_requested,provider:'auto',answer_style:answerStyle,followup_text:original.payload.followup_text||undefined,help_action:original.payload.help_action||undefined,regenerate_of:answerId,stream:true});
+  }
   async function changeMode(next:ConversationMode) {
     if(next!==mode)await emitEvent(id,'conversation_mode_changed',{mode:next});
   }
@@ -123,30 +146,38 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     if(!closeRef.current)closeRef.current={event_id:crypto.randomUUID(),final_status};
     await api(`/sessions/${id}/close`,closeRef.current);
   }
-  const pendingQuestion=activeRequest?.followup_text && !events.some(e=>e.id===activeRequest.event_id)?activeRequest.followup_text:null;
-  const transcript=events.filter(e=>e.event_type==='session_started'||e.event_type==='attempt_submitted'||e.event_type==='ai_hint_delivered'||e.event_type==='ai_hint_requested'&&e.payload.followup_text);
+  const pendingQuestion=!activeRequest?.regenerate_of&&activeRequest?.followup_text && !events.some(e=>e.id===activeRequest.event_id)?activeRequest.followup_text:null;
+  const transcript=events.filter(e=>e.event_type==='session_started'||e.event_type==='attempt_submitted'||e.event_type==='ai_hint_delivered'||e.event_type==='ai_hint_failed'&&e.payload.cancelled||e.event_type==='ai_hint_requested'&&e.payload.followup_text&&!e.payload.regenerate_of);
   return <section className="conversation-page">
     <header className="conversation-heading"><div><ConversationTitle id={id} title={data.title} custom={data.custom_title} reload={reload}/><p>{closed?`${data.overview?.status_label||'Completed'} · saved in history`:'Saved as you go. Come back whenever you like.'}</p></div>{!closed&&<button className="text-button" disabled={busy||!!unfinished||!!activeRequest} onClick={()=>void run(complete)}>Complete conversation <Check size={14}/></button>}</header>
+    <ConversationTools data={data} busy={busy||!!activeRequest} reload={reload} onMatches={setMatches}/>
+    {notice&&<p role="status">{notice}</p>}
+    {data.deletion_pending&&<p role="status">This conversation is awaiting operator deletion. You can still read and export it.</p>}
     {(error||storageError||messageStorageError)&&<div className="error" role="alert">{error||storageError||messageStorageError}<button disabled={busy} onClick={()=>void run(async()=>{await flushQueue(id);const request=requestRef.current||savedRequest();if(request)await deliver(request,true);})}>Retry sync / refresh</button></div>}
     <div className="conversation-messages" aria-label="Conversation messages">
       {transcript.map(event=>{
+        if(event.event_type==='ai_hint_failed')return <p key={event.id} className="field-help">Generation stopped. You can ask again whenever you like.</p>;
         const assistant=event.event_type==='ai_hint_delivered';
         const own=event.event_type==='attempt_submitted';
-        return <article key={event.id} className={`chat-message ${assistant?'assistant-message':'user-message'} ${own?'own-attempt':''}`}>
-          <div className="message-label">{assistant?<><img src="/logo.png" alt="" width={24} height={24}/>ThinkFirst{event.payload.tier<3&&<span>Hint</span>}</>:own?<><PenLine size={14}/>Your thinking</>:'You'}</div>
+        return <article id={`message-${event.id}`} tabIndex={-1} key={event.id} className={`${matches.includes(event.id)?'message-search-match':''} chat-message ${assistant?'assistant-message':'user-message'} ${own?'own-attempt':''}`}>
+          <div className="message-label">{assistant?<><img src="/logo.png" alt="" width={24} height={24}/>ThinkFirst{event.payload.regenerate_of&&<span>New version</span>}{event.payload.tier<3&&<span>Hint</span>}{event.payload.help_action==='exercise'&&<span>Practice question</span>}</>:own?<><PenLine size={14}/>Your thinking</>:'You'}</div>
           {assistant?<AnswerContent text={event.payload.hint_text}/>:<div className="message-content">{event.payload.problem_text || event.payload.attempt_text || event.payload.followup_text}</div>}
-          {assistant&&<AnswerFeedback sessionId={id} answerId={event.id} rating={feedback.get(event.id)} reload={reload}/>}
+          {!assistant&&!own&&!event.payload.help_action&&<EditQuestion sessionId={id} event={event} disabled={busy||!!activeRequest||Boolean(data.deletion_pending)}/>}
+          {assistant&&event.id===replies.at(-1)?.id&&!closed&&<button className="text-button" disabled={busy||!!activeRequest||events.slice(events.indexOf(event)+1).some(e=>['attempt_submitted','ai_hint_requested'].includes(e.event_type))} onClick={()=>void run(()=>regenerate(event.id))}>Regenerate answer</button>}
+          {assistant&&event.payload.help_action!=='exercise'&&!data.deletion_pending&&<div className="saved-answer-actions"><button className="text-button" aria-pressed={savedAnswers.get(event.id)||false} disabled={busy} onClick={()=>void run(()=>emitEvent(id,'answer_saved',{answer_event_id:event.id,saved:!savedAnswers.get(event.id)}))}>{savedAnswers.get(event.id)?'Remove from Saved':'Save for later'}</button>{savedAnswers.get(event.id)&&<Link className="text-button" href={`/practice/${event.id}`}>Try this question again</Link>}</div>}
+          {assistant&&!data.deletion_pending&&<AnswerFeedback sessionId={id} answerId={event.id} rating={feedback.get(event.id)} reload={reload}/>}
         </article>;
       })}
       {pendingQuestion&&<article className="chat-message user-message"><div className="message-label">You</div><div className="message-content">{pendingQuestion}</div></article>}
-      {activeRequest&&<div className="thinking-state" role="status"><LoaderCircle size={17} className="spin"/>{busy?'Thinking…':'Your reply is pending. Reconnect to continue.'}</div>}
+      {preview&&!stopping&&<article className="chat-message assistant-message streaming-preview"><div className="message-label">ThinkFirst · Writing</div><AnswerContent text={preview}/><p className="field-help">Live preview. The final answer is saved when complete.</p></article>}
+      {activeRequest&&<div className="thinking-state" role="status"><LoaderCircle size={17} className="spin"/>{stopping?'Stopping…':busy?(preview?'Writing…':'Thinking…'):'Your reply is pending. Reconnect to continue.'}<button className="secondary" disabled={stopping} onClick={()=>void stop()}>Stop generating</button></div>}
       <div ref={transcriptEnd}/>
     </div>
     {!closed&&<PracticeSupport id={id} practice={data.practice} paused={busy||!!activeRequest||!!unfinished} reload={reload}/>}
     {closed?<div className="conversation-complete"><p>Your conversation and your own attempts are saved together.</p><Link className="primary" href="/new">Ask another question</Link></div>:<div className="conversation-composer">
       <div className="mode-switch" aria-label="Conversation mode"><button type="button" aria-pressed={mode==='ask_ai'} disabled={busy||!!activeRequest} onClick={()=>void run(()=>changeMode('ask_ai'))}><MessageCircle size={16}/>Ask AI</button><button type="button" aria-pressed={mode==='try_myself'} disabled={busy||!!activeRequest} onClick={()=>void run(()=>changeMode('try_myself'))}><PenLine size={16}/>Try myself</button></div>
       {mode==='ask_ai'?<form onSubmit={e=>{e.preventDefault();if(message.trim())void run(()=>ask(3,message.trim()));}}>
-        <label className="sr-only" htmlFor="chat-message">Your message</label><textarea id="chat-message" rows={3} maxLength={5000} value={message} disabled={busy||!!activeRequest} onChange={e=>setMessage(e.target.value)} placeholder={replies.length?'Ask a follow-up, or explore another idea…':'Add a detail or ask a follow-up…'}/>
+        <label className="sr-only" htmlFor="chat-message">Your message</label><textarea id="chat-message" rows={3} maxLength={5000} value={message} onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();e.currentTarget.form?.requestSubmit();}}} disabled={busy||!!activeRequest} onChange={e=>setMessage(e.target.value)} placeholder={replies.length?'Ask a follow-up, or explore another idea…':'Add a detail or ask a follow-up…'}/>
         <div className="composer-actions"><span className="field-help">AI can make mistakes. Check important details.</span>{!replies.length&&!message.trim()?<button className="primary" type="button" disabled={busy||!!activeRequest} onClick={()=>void run(()=>ask(3))}>Get an answer <ArrowUp size={16}/></button>:<button className="primary" disabled={busy||!!activeRequest||!message.trim()}>Send <ArrowUp size={16}/></button>}</div>
       </form>:<form onSubmit={e=>{e.preventDefault();void run(saveAttempt);}}>
         <label className="field-label" htmlFor="own-attempt">What would you try?</label><textarea ref={attemptInput} id="own-attempt" rows={4} maxLength={20000} value={attempt} disabled={busy||!!activeRequest} onChange={e=>setAttempt(e.target.value)} placeholder="Write a rough idea, a first step, or your own answer…"/>
@@ -157,6 +188,7 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     {!closed&&<div className="conversation-options"><label>Answer length <select value={answerStyle} disabled={busy||!!activeRequest} onChange={e=>setAnswerStyle(e.target.value as 'concise'|'detailed')}><option value="concise">Concise</option><option value="detailed">Detailed</option></select></label>
       {allowance&&<span className="field-help" title={`Resets ${new Date(allowance.resets_at).toLocaleString()}. Shared service limits also apply.`}>{allowance.requests_remaining} of {allowance.daily_limit} AI requests left today · resets at {new Date(allowance.resets_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}. {allowance.requests_remaining===0?'Try myself is still available.':'Shared limits apply.'}</span>}
     </div>}
-    <ConversationReview data={data} reload={reload}/>
+    {!closed&&<details className="related-exercise"><summary>Practise a related question</summary><p>Get one new question to try yourself. Your current attempt is saved first. This uses one AI request and may use fallback services within the existing limits.</p><button className="secondary" disabled={busy||!!activeRequest||!!unfinished||allowance?.requests_remaining===0} onClick={()=>void run(relatedExercise)}>Create a practice question · 1 AI request</button></details>}
+    {!data.deletion_pending&&<ConversationReview data={data} reload={reload}/> }
   </section>;
 }

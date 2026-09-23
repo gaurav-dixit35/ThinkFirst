@@ -190,7 +190,8 @@ def test_review_actual_routing_uses_budget_usage_and_analysis_prompt(client,lear
     def handle(request):
         body=json.loads(request.content);calls.append(body)
         if request.url.host=='api.groq.com':return httpx.Response(503)
-        assert body['systemInstruction']['parts'][0]['text']==provider.ANALYSIS_PROMPT
+        assert body['systemInstruction']['parts'][0]['text'].startswith(provider.ANALYSIS_PROMPT)
+        assert 'Match the language of the current question.' in body['systemInstruction']['parts'][0]['text']
         return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':'Your saved attempt traces a loop. Try a second input.'}]}}],
             'usageMetadata':{'promptTokenCount':100,'candidatesTokenCount':20,'totalTokenCount':120}})
     real=httpx.AsyncClient

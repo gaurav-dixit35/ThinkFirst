@@ -16,3 +16,11 @@ exports/
 apps/web/tsconfig.tsbuildinfo
 apps/web/test-results/
 apps/web/playwright-report/
+
+# Local screenshots can contain participant work.
+artifacts/screenshots/
+
+# Temporary credential files used by local account setup.
+*.auth-tmp
+
+.next-qa/

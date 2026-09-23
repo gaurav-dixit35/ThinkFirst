@@ -11,6 +11,7 @@ async function fixture(page:Page,{welcome=false,erased=false,failConsent=false}=
     let data:any;
     if(path==='/me')data={id:'privacy-user',display_name:'Fixture',admin:false,development:false,privacy:state};
     else if(path==='/preferences/answers'){if(req.method()==='POST')answerStyle=req.postDataJSON().answer_style;data={answer_style:answerStyle};}
+    else if(path==='/preferences/language')data={answer_language:'auto'};
     else if(path==='/health')data={status:'ok',database:'connected'};
     else if(path==='/ai/hint')data={id:'new-answer',event_type:'ai_hint_delivered',payload:{tier:req.postDataJSON().tier,hint_text:'Synthetic reply.'},created_at:new Date().toISOString()};
     else if(path==='/privacy'){

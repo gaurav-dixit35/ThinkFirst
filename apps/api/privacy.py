@@ -1,6 +1,6 @@
 """Account data choices. Research consent is never inferred from app use."""
 from sqlalchemy import select
-from .db import UserPrivacy, DeletionRequest, Session, Event, ConversationMetadata, ConversationState, ConversationDeletion, ResponseDraft, UserPreferences, AnswerPreferences, AIUsageRequest, now
+from .db import UserPrivacy, DeletionRequest, Session, Event, ConversationMetadata, ConversationState, ConversationDeletion, ResponseDraft, UserPreferences, AnswerPreferences, AIUsageRequest, LearningPreferences, SupportReport, now
 
 NOTICE_VERSION = '2026-09-16'
 
@@ -15,6 +15,7 @@ def state(db, user_id):
     return {'notice_version': NOTICE_VERSION, 'acknowledged': bool(row and row.notice_version == NOTICE_VERSION),
             'research_opt_in': bool(row and row.research_opt_in),
             'deletion_request': record(requests[0]) if requests else None,
+            'erased_session_ids':list(db.scalars(select(ConversationDeletion.session_id).where(ConversationDeletion.user_id==user_id,ConversationDeletion.status=='completed'))),
             'last_erased_at': next((r.completed_at.isoformat() for r in requests if r.completed_at), None)}
 
 
@@ -32,10 +33,13 @@ def export_account(db, participant):
     preferences = db.get(UserPreferences, participant.id)
     choices = db.get(UserPrivacy, participant.id)
     answers = db.get(AnswerPreferences, participant.id)
-    return {'schema_version': 1, 'exported_at': now(), 'account': record(participant),
+    learning = db.get(LearningPreferences, participant.id)
+    return {'schema_version': 2, 'exported_at': now(), 'account': record(participant),
             'privacy': state(db, participant.id), 'privacy_record': record(choices) if choices else None,
             'preferences': record(preferences) if preferences else {'practice_reminders': True},
             'answer_preferences': record(answers) if answers else {'answer_style': 'concise'},
+            'learning_preferences':record(learning) if learning else {'answer_language':'auto','goal':'','weekly_target':0},
+            'support_reports':[record(r) for r in db.scalars(select(SupportReport).where(SupportReport.user_id==participant.id))],
             'sessions': [record(s) for s in sessions],
             'conversation_state': [record(r) for r in db.scalars(select(ConversationState).where(ConversationState.session_id.in_(ids)))],
             'conversation_deletions': [record(r) for r in db.scalars(select(ConversationDeletion).where(ConversationDeletion.user_id==participant.id))],

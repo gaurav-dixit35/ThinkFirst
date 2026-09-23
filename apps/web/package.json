@@ -6,10 +6,12 @@
     "postcss": "$postcss"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname localhost",
     "build": "next build",
-    "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "start": "next start --hostname localhost",
+    "typecheck": "tsc --noEmit",
+    "test:build": "node scripts/qa.mjs build",
+    "test:serve": "node scripts/qa.mjs start"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.0.0",

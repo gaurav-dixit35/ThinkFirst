@@ -46,7 +46,7 @@ Next.js **15.5.25** replaces the requested 14 baseline because current security 
 
 ## Authentication and production configuration
 
-Create a Clerk application. Set `AUTH_MODE=clerk`, `ENVIRONMENT=production`, `CLERK_ISSUER=https://<your-clerk-domain>`, and `WEB_ORIGINS=https://<your-web-host>` in the API environment. Set `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and `NEXT_PUBLIC_API_URL` in `apps/web/.env.local` or the web host environment, then rebuild. Clerk handles sign-in and signup through its modal.
+Create a Clerk application. Set `AUTH_MODE=clerk`, `ENVIRONMENT=production`, `CLERK_ISSUER=https://<your-clerk-domain>`, and `WEB_ORIGINS=https://<your-web-host>` in the API environment. Set `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and `NEXT_PUBLIC_API_URL` in `apps/web/.env.local` or the web host environment, then rebuild. Clerk handles sign-in and signup on `/login` and `/signup`, with account management in Settings. For local activation from root `.env`, follow [account setup](docs/login-setup.md).
 
 `ADMIN_SUBJECTS` is a comma-separated allowlist of Clerk subject IDs. The local development subject is `local-development-participant`; allowlisting it is useful only for local research previews. API access checks are authoritative even if a client bypasses a screen.
 
@@ -74,7 +74,7 @@ The original paper was not attached. Only reference numbers quoted in the specif
 
 # PostgreSQL integration (dedicated database)
 docker compose exec -T db createdb -U thinkfirst thinkfirst_test
-$env:TEST_DATABASE_URL='postgresql+psycopg://thinkfirst:thinkfirst@localhost:55432/thinkfirst_test'
+$env:TEST_DATABASE_URL='postgresql+psycopg://thinkfirst:thinkfirst@127.0.0.1:55432/thinkfirst_test'
 .\.venv\Scripts\python.exe -m pytest -q
 
 cd apps/web
@@ -82,20 +82,17 @@ npm run build
 npm audit
 ```
 
-For browser tests, use the isolated QA API entry point. It strips provider keys and refuses any database other than `thinkfirst_test`. Start each command in its own terminal (with the web production server on 3000):
+For browser tests, use the isolated QA API entry point. It strips provider keys and refuses any database other than `thinkfirst_test`. The helper reads local database credentials privately from root `.env` and switches to that dedicated test database. Start each command from the repository root in its own terminal:
 
 ```powershell
-$env:DATABASE_URL='postgresql+psycopg://thinkfirst:thinkfirst@localhost:55432/thinkfirst_test'
-.\.venv\Scripts\python.exe -m uvicorn tests.browser_api:app --port 8001
+.\.venv\Scripts\python.exe scripts/run_qa_api.py --port 8001
 ```
 
 ```powershell
-$env:DATABASE_URL='postgresql+psycopg://thinkfirst:thinkfirst@localhost:55432/thinkfirst_test'
-$env:QA_MOCK_AI='true'
-.\.venv\Scripts\python.exe -m uvicorn tests.browser_api:app --port 8002
+.\.venv\Scripts\python.exe scripts/run_qa_api.py --port 8002
 ```
 
-Then run `npx playwright test` from `apps/web`. Chrome must be installed. Port 8001 tests missing configuration; port 8002 injects synthetic HTTP provider responses to test fallback through the real backend and database. Neither seeds the main database or calls paid AI services. Screenshots show QA data. See [validation notes](docs/validation.md) for completed checks and remaining limits.
+In `apps/web`, run `npm run test:build` followed by `npm run test:serve`. This starts a separate website on port 3100 without changing your Clerk configuration or normal build. In another terminal in `apps/web`, set `$env:PLAYWRIGHT_BASE_URL='http://localhost:3100'` and run `npx playwright test --workers=1`. Chrome must be installed. Port 8001 tests missing configuration; port 8002 injects synthetic HTTP provider responses, including streaming, to test fallback through the real backend and database. Neither seeds the main database or calls paid AI services. Run PostgreSQL pytest separately from browser tests because both use `thinkfirst_test`. Screenshots show QA data. See [validation notes](docs/validation.md) for completed checks and remaining limits.
 
 ## Contracts and limitations
 
@@ -129,3 +126,13 @@ See [data choices and retention](docs/privacy.md) and [deployment, backups, reco
 
 
 Settings now groups account controls, saved answer-length defaults, practice reminders, allowance, privacy, and connection help. Progress charts are restored with separate chat and guided-study views. Hint/answer buttons follow the latest question after a topic change. See [the chat review](docs/chat-review.md) for the diagnosed issue, implemented changes, and remaining launch requirements.
+
+## Latest functional update
+
+Saved answers and retries, optional weekly goals, English/Hindi/Hinglish answer preferences, on-demand related exercises, Markdown conversation downloads, and stored support reports are implemented. See [functional changes](docs/functional-updates.md) and the [owner setup steps](docs/owner-setup.md). Production needs the current owner migration and runtime grants before API startup.
+
+## Local hostname and authenticated smoke check
+
+Use `npm run dev` or `npm run start` in `apps/web`, and open `http://localhost:3000`. Both scripts explicitly use the same `localhost` hostname. With Clerk middleware on this version of Next.js, binding the website to `127.0.0.1` while browsing `localhost` caused a self-proxy loop and Internal Server Error; do not restore that combination. The separate API may still bind to `127.0.0.1:8000`.
+
+For synthetic browser QA after enabling Clerk, follow the Validation commands above. To inspect the real login screens without creating accounts, set `$env:CLERK_SMOKE='1'` and `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'` in `apps/web`, then run `npx playwright test e2e/clerk-smoke.spec.ts`. Clear `CLERK_SMOKE` before returning to synthetic QA.

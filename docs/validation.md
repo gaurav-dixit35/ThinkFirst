@@ -98,3 +98,42 @@ After Docker Desktop disconnected during the first image build, restarted Docker
 Built `thinkfirst-api:predeploy` successfully from `apps/api/Dockerfile`. An isolated container with networking disabled, no real credentials and a temporary SQLite database confirmed UID 10001, no copied `.env` or configured AI credentials, startup through `apps.api.serve`, the custom `PORT=48765`, and a successful health response with a request reference. The temporary container was removed automatically. This validates the Linux API image and entrypoint; the hosted PostgreSQL/Clerk combination still requires the deployment walkthrough. The optional Docker web image was not built; the intended Netlify website has passed its local production build.
 
 The local web/API servers are running again. Read-only health, help and privacy checks returned 200. No live model calls were made, and the original environment keys and participant records were preserved.
+
+
+## Text-chat completion — September 22, 2026
+
+The full backend suite passed: 133 passed and three PostgreSQL-only checks skipped on SQLite. Seventeen focused upgrade/deployment checks passed on isolated PostgreSQL. Coverage includes streamed text extraction for all six adapters, reasoning-delta exclusion, incomplete-stream rejection, fallback preview replacement, persisted Stop with conservative accounting, safe edit/regeneration replay, archive filtering and exact-target erasure preserving other conversations. A first-preview throttle bug found by the checks was corrected.
+
+The production web build and TypeScript checks passed. Twelve Chrome scenarios passed across the new mobile search/archive/deletion controls, streaming preview/Stop, keyboard editing, and existing history/review/privacy flows. Real provider transport was simulated; live keys, model availability and hosted sign-in were not probed. Local PostgreSQL, API and website were started with existing environment/data preserved.
+
+Captured and visually checked the real local Home, Progress and Settings pages at the configured `http://localhost:3000` origin. Saved full-page images to ignored `artifacts/screenshots/home.png`, `progress.png` and `settings.png`. No synthetic conversations or AI requests were added to the live workspace. The numeric loopback origin is intentionally rejected by the current API origin allowlist; use localhost in the browser.
+
+## Saved answers and deliberate retries — 2026-09-22
+
+Implementation was completed before running checks, as requested. `tests/test_saved_learning.py`, `tests/test_history_progress.py`, and `tests/test_privacy.py`: **18 passed** on the isolated SQLite test database. Two existing upstream deprecation warnings remain. New coverage checks owner/conversation isolation, latest-question association, regenerated answers, retry and bookmark idempotency, closed-conversation retries, unchanged original progress metrics, search/pagination, pending deletion, export, and completed erasure. Provider generation is mocked; no live AI requests or main-workspace data are involved.
+
+TypeScript checking passed. No browser tests, smoke checks, production build, hosted account walkthrough, or live provider checks were run for this update. Restart/rebuild is required to serve the updated code. The existing Clerk-credential activation blocker remains.
+
+## Functional completion — 2026-09-22
+
+The feature implementation was finished before running tests. The full isolated SQLite backend run recorded **141 passed, 3 PostgreSQL-only skips**, and one failure caused by an older test asserting the analysis system prompt had no appended language preference. Updating that assertion to preserve the review prompt and require the language instruction resolved it: the affected real-routing review test plus all five new workspace tests then passed (**6 passed**). No backend implementation changed after that full run. Existing upstream deprecation warnings remain.
+
+New backend coverage includes generated exercise focus and replay, language on every fallback, stable weekly counts, preference preservation, report ownership/idempotency/rate limits/operator access, export and erasure of the new records. Transport/provider responses are synthetic.
+
+**Production Next.js build passed**, including TypeScript and route generation. **Six Chrome tests passed**: three existing chat upgrade tests and three functional update tests covering language/goal settings, mobile hidden-answer practice and keyboard focus, real download contents and report submissions. Browser API requests were intercepted with synthetic fixtures; no main database or live provider requests were involved. The process sandbox prevented Playwright worker spawning; the same tests ran successfully with reviewed process access. The in-app browser Node REPL tool was unavailable, so the repository's Playwright suite was used.
+
+No paid AI calls, hosted Clerk walkthrough, production deployment, or live provider checks were performed. No separate smoke test was run. `git diff --check` passed before the final documentation update.
+
+Local startup after validation: existing `res-db-1` was started without recreating its volume. The updated API completed development startup (including additive schema setup) on `127.0.0.1:8000`, and the production website started on `127.0.0.1:3000`. Open `http://localhost:3000` for the configured browser origin. The temporary port-3100 browser-test server was stopped. No HTTP smoke request or live generation was made during startup.
+
+## Local Clerk server-error repair and full regression — 2026-09-23
+
+Reproduced the reported Internal Server Error on the Clerk-enabled website. Next.js was bound to `127.0.0.1` while requests used `localhost`; Clerk middleware rewrites caused Next.js to proxy the request back into itself, ending with `ECONNRESET`. Starting the website with `--hostname localhost` restored responses. Both npm development/start scripts now use that hostname. The local database DSN and fresh-install example use `127.0.0.1` after observing stalled PostgreSQL hostname connections. Existing credentials and main conversation records were preserved.
+
+- Complete SQLite backend suite: **142 passed, 3 PostgreSQL-only skips**. Two upstream deprecation warnings remain.
+- Complete synthetic Chrome suite: **32 passed**, with the real Clerk scenario intentionally skipped in this run. Updated older strict Settings/Progress fixtures for language, saved activity and learning-goal endpoints; the Gemini fallback transport fixture now emits SSE for streaming requests. Recovery tests verify lost responses and refresh do not issue duplicate generations.
+- Separate real Clerk smoke: **1 passed** against the rebuilt normal website. Home, login, signup, help, privacy and settings returned 200; actual Clerk login/signup forms loaded, mobile width fit, and the signup screenshot was visually inspected. Adjusted the auth footer layout. No account was created or signed in by automation.
+- Production and separate QA builds passed, including TypeScript and static route generation. Standalone TypeScript validation and **2 hosted-environment guard tests** also passed. `npm audit --omit=dev` reported **0 vulnerabilities**; `pip check` found no broken requirements.
+- Read-only API checks returned healthy database/Clerk mode, 401 for an unsigned account request, allowed CORS for `http://localhost:3000`, and rejected an unapproved origin.
+
+Synthetic QA now has a separate `.next-qa` build on port 3100 and dedicated API helpers on 8001/8002. Real `.env.local` and the Clerk-enabled `.next` build remain intact. Test generation uses synthetic transport responses, never paid AI providers or the main participant database. Real signup, verification/recovery, two-account hosted isolation, live model credits/output, and public deployment remain external walkthroughs.

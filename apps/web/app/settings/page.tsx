@@ -6,6 +6,8 @@ import {useIdentity} from '@/components/Providers';
 import {api} from '@/lib/api';
 import {flushQueue,queueStatus} from '@/lib/eventClient';
 import AISetup from '@/components/AISetup';
+import LanguagePreferences from '@/components/LanguagePreferences';
+import OperatorReports from '@/components/OperatorReports';
 import PracticePreferences from '@/components/PracticePreferences';
 import DataControls from '@/components/DataControls';
 import OperatorStatus from '@/components/OperatorStatus';
@@ -26,11 +28,11 @@ export default function Page(){
     <nav className="settings-nav" aria-label="Settings sections"><a href="#account">Account</a><a href="#preferences">Preferences</a><a href="#allowance">AI allowance</a><a href="#privacy">Privacy</a><a href="#support">Help</a></nav>
     <div className="settings-grid">
       <section className="settings-card" id="account"><h2><UserRound size={20}/>Your account</h2><AccountSettings/></section>
-      <section className="settings-card" id="preferences"><h2><SlidersHorizontal size={20}/>How AI helps you</h2><AnswerPreferences/><PracticePreferences/></section>
+      <section className="settings-card" id="preferences"><h2><SlidersHorizontal size={20}/>How AI helps you</h2><AnswerPreferences/><LanguagePreferences/><PracticePreferences/></section>
       <section className="settings-card" id="allowance"><h2><Sparkles size={20}/>Your AI allowance</h2><UsageSettings/></section>
       <section className="settings-card" id="privacy"><h2><ShieldCheck size={20}/>Privacy and saved work</h2><DataControls/></section>
       <section className="settings-card settings-wide" id="support"><h2><LifeBuoy size={20}/>Help and connection</h2>
-        <p><Link href="/help">Help and contact support</Link> · <Link href="/privacy">Read the privacy notice</Link></p>
+        <p><Link href="/support">Report a problem</Link> · <Link href="/help">Help and contact support</Link> · <Link href="/privacy">Read the privacy notice</Link></p>
         <div className="settings-actions"><button className="secondary" disabled={busy} onClick={()=>void check()}>Check connection</button><button className="secondary" disabled={busy} onClick={()=>void check(true)}>Sync saved work</button><Link className="text-button" href="/history">Find a conversation</Link></div>
         {status&&<p role="status">{status}</p>}{error&&<p role="alert">{error}</p>}
         <details><summary>How do Ask AI and Try myself work?</summary><p>Ask AI gets an answer straight away. Try myself gives you space to save an idea, ask for a hint, or see an explanation. Help buttons follow your current question, even if you changed subjects earlier in the chat.</p></details>
@@ -39,6 +41,6 @@ export default function Page(){
         <details><summary>What if I lose my connection?</summary><p>Keep this browser profile to preserve drafts and unsent work. Reconnect and choose Sync saved work. A pending AI request resumes with the same request ID rather than starting another paid generation.</p></details>
       </section>
     </div>
-    {(identity?.development||identity?.admin)&&<details className="settings-card settings-advanced" onToggle={e=>setAdvanced(e.currentTarget.open)}><summary>Workspace administration</summary>{advanced&&<><AISetup/><OperatorStatus/>{identity?.admin&&<Link className="secondary" href="/research">Research exports</Link>}</>}</details>}
+    {(identity?.development||identity?.admin)&&<details className="settings-card settings-advanced" onToggle={e=>setAdvanced(e.currentTarget.open)}><summary>Workspace administration</summary>{advanced&&<><AISetup/><OperatorStatus/><OperatorReports/>{identity?.admin&&<Link className="secondary" href="/research">Research exports</Link>}</>}</details>}
   </div>;
 }

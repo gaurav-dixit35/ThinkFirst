@@ -4,6 +4,12 @@ Phase 5 provides local controls and deployment tooling. Production Clerk credent
 
 Use the [deployment handoff checklist](deployment-checklist.md) for the Netlify + Railway setup, separate secret inventories, migration/runtime roles and launch order.
 
+## Local startup troubleshooting
+
+Local Clerk login/signup screens were verified on September 23, 2026. Use `npm run dev` or `npm run start` in `apps/web` and browse `http://localhost:3000`. The scripts bind the website to the same hostname. Manually binding Next.js to `127.0.0.1` while visiting `localhost` caused a Clerk middleware rewrite to proxy back into the website and return Internal Server Error. Restart with the npm script after rebuilding if using production output.
+
+Keep the API on `127.0.0.1:8000` and use `127.0.0.1:55432` for the local Docker PostgreSQL connection. This avoids the local database hostname connection stall observed during validation. `/health` should return database connected and `auth_mode: clerk`; an unauthenticated `/me` returning 401 is expected. Run synthetic browser checks on the separate QA website as described in [README](../README.md#validation), preserving the real Clerk build and keys.
+
 ## Configure the hosted environment
 
 1. Use a separate PostgreSQL 16 production database and a production Clerk instance. Do not reuse the shared development database/identity. Make a restore-verified backup before every deployment that changes data structures.
@@ -58,3 +64,18 @@ Check `/health` for API/database availability, Settings → AI setup for configu
 Ask users for the conversation/request reference, approximate time, and visible error, not their API key or full private conversation. On an interrupted answer, reopen/poll the saved request before retrying a new one. On 429, review the allowance and reset time. On 503, check database/network health. On sign-in errors, check issuer, exact origins, key configuration, and token expiry. Database errors log only the exception class, not SQL parameters containing private text. Configure proxy logging to omit authorization headers, bodies, and sensitive URL query values (history searches contain user text).
 
 Rotate compromised provider/Clerk/database credentials through the owning service and deployment secret store, then restart the affected service. Keep incident notes without private prompts. Monitor database size, backup freshness, failed provider attempts, quota denials, uptime, and pending deletion age. This repository does not provide alert delivery or an on-call service; assign a named pilot operator and an actual contact channel before launch.
+
+
+## Text-chat update schema and individual erasure
+
+Before deploying this update, run the owner migration and runtime grant commands again. Three new tables hold archive flags, individual deletion requests and response preview state (including the conversation deletion audit); the migration adds them without changing existing conversation records. The running API still uses the restricted role.
+
+Operator status now distinguishes all-conversation requests from one-conversation requests. Use the same `python -m apps.api.erase --request-id ... --user-id ... --api-stopped` workflow for either kind after stopping all API replicas. The command resolves the exact request and removes only its approved scope, including preview/archive metadata. Other conversations, edited copies, account records and quota accounting remain. Refresh the browser after erasure so completed session IDs clear the corresponding local drafts and queued events.
+
+## Dedicated account pages
+
+The website now provides `/login` and `/signup`. Follow [account setup](login-setup.md) to connect a local Clerk instance without copying unrelated API secrets into the website. Real credentials and account verification remain required before launch.
+
+## Functional completion batch
+
+See [functional updates](functional-updates.md) for weekly goals, language preferences, related exercises, Markdown conversation export and stored support reports. Only explicitly generating an exercise uses a new AI request; the other features do not. Production needs the additive table migration and refreshed runtime grants before startup.

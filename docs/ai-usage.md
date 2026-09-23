@@ -42,3 +42,18 @@ New chat requests default to Concise; Detailed explicitly increases the output b
 Assistant messages render Markdown, tables, fenced code and `$...$` / `$$...$$` math. Copy answer preserves the original Markdown; Copy code copies the code text. Raw HTML is skipped, unsafe URL protocols are filtered by react-markdown, remote images do not load, and KaTeX trust is disabled. Older answers using other math delimiters may remain literal text.
 
 Reference contracts: [react-markdown security and math integration](https://github.com/remarkjs/react-markdown), [OpenRouter usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting), and [Gemini token accounting](https://ai.google.dev/gemini-api/docs/generate-content/tokens).
+
+
+## Streaming, cancellation and new answer versions
+
+Direct-answer previews use the same admitted request and fallback envelope. Browser preview polling does not generate answers. Stop cancels the provider task; any incurred or unknown usage stays in the ledger. Partial previews are cleared on completion, cancellation or failure and are not delivered-answer events. A provider switch replaces the preview instead of concatenating output.
+
+Regeneration is an explicit new AI request and uses allowance. It does not overwrite earlier answers or reuse their request ID. Editing a question creates a separate conversation with bounded earlier context; the Save edit and ask AI button uses one new request. Automatic reconnect uses the original request ID and polls saved state before resubmitting.
+
+## Saved answers and retries
+
+[Saved learning](saved-learning.md) adds answer bookmarks, searchable saved work and deliberate retries with the earlier answer hidden until requested. Saving, retrying and comparison use no AI requests. Progress counts these retries separately from first attempts; it does not assign grades. Personal account activation still needs Clerk credentials. Learning goals and language preferences are included in the subsequent functional completion batch below.
+
+## Functional completion batch
+
+See [functional updates](functional-updates.md) for weekly goals, language preferences, related exercises, Markdown conversation export and stored support reports. Only explicitly generating an exercise uses a new AI request; the other features do not. Production needs the additive table migration and refreshed runtime grants before startup.

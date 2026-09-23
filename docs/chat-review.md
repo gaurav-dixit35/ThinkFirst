@@ -16,6 +16,17 @@ The supplied conversation moved from an overheating phone to `5*5`, then `5*9`, 
 
 The workspace has no configured Clerk issuer/publishable/secret keys. Real sign-in cannot be activated or verified until the operator supplies those locally, configures frontend and API origins, and rebuilds/restarts. Existing development conversations are not silently transferred to a new account. Follow [operations](operations.md) for hosted two-account checks, TLS/deployment, encrypted backup scheduling/expiry, a support contact, and a deletion-response schedule.
 
-Further optional work should be driven by use: streaming and cancellation with safe fallback, search within a conversation, accessible richer math input, and optional files/voice. These are not prerequisites for the corrected text-chat flow and are not represented as completed.
+The text-chat follow-up is now implemented: progressive answers, Stop generating, question edits in separate conversations, latest-answer regeneration, conversation search, archive/restore and individual deletion requests. Files, images, voice and richer math input remain optional later work.
 
 Local deployment preparation now includes public help/privacy, configurable support, error recovery pages, safe request references, hosted-build guards, Netlify configuration, platform-port/database-URL handling and separate schema/runtime permissions. See the [deployment handoff](deployment-checklist.md) for the remaining host/account steps.
+
+
+## Text-chat update — September 22, 2026
+
+- Direct answers use provider streaming with saved previews, refreshed by the browser every 700 ms. Hints stay buffered until their level checks pass. The final answer is saved only after successful completion. Fallback replaces a failed provider preview instead of combining two answers; no extra AI request is used to update the screen.
+- Stop generating persists cancellation and interrupts the active provider task. Incurred or unknown provider usage remains accounted for. A completed answer wins a simultaneous Stop; cancelled requests cannot deliver a later partial as a completed answer. Lost browser connections retain the original request ID for recovery.
+- Edit question opens a new conversation with bounded earlier context and leaves the original unchanged. The button explicitly asks AI in that new conversation. Regeneration preserves earlier versions and is offered for the latest answer when no newer question/attempt exists.
+- Conversation tools include text search with match navigation, archive/restore and an individually confirmed deletion request. Deletion is explicitly pending until the operator runs the existing offline erasure command with the request/account IDs; it is not an instant-delete claim. Other conversations and quota records remain. Edited copies are separate conversations.
+- Added visible keyboard focus, Skip to content, Escape in the editor/search, Ctrl/Cmd+Enter for sending, reduced-motion behavior and larger mobile controls. Home retains its existing layout.
+
+The actual local website is running for screenshots. The saved image files are under `artifacts/screenshots/`; they are excluded from Git because they may contain private workspace information. Hosted login and a deliberate live provider check still require deployment configuration. No paid AI calls were used for verification.

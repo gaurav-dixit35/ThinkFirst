@@ -11,6 +11,7 @@ async function fixture(page:Page,failDecision=false){
     let data:any;
     if(path==='/me')data={id:'practice-user',display_name:'Fixture',admin:false,development:false};
     else if(path==='/preferences/answers')data={answer_style:'concise'};
+    else if(path==='/preferences/language')data={answer_language:'auto'};
     else if(path==='/privacy')data={acknowledged:true,research_opt_in:false,notice_version:'fixture',last_erased_at:null,deletion_request:null};
     else if(path==='/ai/usage')data={daily_limit:30,requests_used:3,requests_remaining:27,resets_at:'2099-01-01T00:00:00Z'};
     else if(path==='/preferences'){

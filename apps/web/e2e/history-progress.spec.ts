@@ -15,6 +15,8 @@ async function fixture(page:Page,{lost=false,pending=false}={}){
     let data:any;
     if(path==='/me')data={id:'history-fixture',display_name:'Fixture',admin:false,development:false};
     else if(path==='/ai/usage')data={daily_limit:30,requests_used:1,requests_remaining:29,resets_at:'2099-01-01T00:00:00Z'};
+    else if(path==='/learning-goal')data={goal:'',weekly_target:0,questions_retried:0,attempts:0,week_start:'2026-09-21T00:00:00Z',resets_at:'2026-09-28T00:00:00Z'};
+    else if(path==='/saved')data={items:[],total:0,has_more:false,summary:{saved:0,retried:0,attempts:0}};
     else if(path===`/sessions/${sid}`)data={id:sid,status:'open',experience:'chat',mode:'ask_ai',title,custom_title:custom,events,summary:{},
       overview:{own_attempts:0,ai_questions:1,ai_answers:1,failed_requests:0,ai_reviews:events.filter(e=>e.event_type==='ai_analysis_delivered').length,initial_mode:'ask_ai',outcome:'open',status_label:'In progress',fingerprint:'source-v1',can_review:true}};
     else if(path===`/sessions/${sid}/title`){title=request.postDataJSON().title||'Understanding loops';custom=!!request.postDataJSON().title;data={title,custom_title:custom};}

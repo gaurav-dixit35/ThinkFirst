@@ -16,11 +16,11 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from analytics.etl import effective, reconstruct, summarize, timestamp, user_frame
 from analytics.stats import analyze
-from . import provider, routing, usage, practice, activity, privacy, chat_context, deployment
+from . import provider, routing, usage, practice, activity, privacy, chat_context, deployment, learning, workspace
 from .http_safety import RequestBodyLimit
 from .auth import identity, is_admin, mode, origins, validate_configuration
-from .db import Event, ResearchExport, Rollup, Session, SessionLocal, User, UserPreferences, UserPrivacy, DeletionRequest, ConversationMetadata, AnswerPreferences, ResponseDraft, ConversationState, ConversationDeletion, migrate, verify_schema, now
-from .schemas import Close, Emit, Hint, PAYLOADS, Start, Preferences, ConversationTitle, AnalysisRequest, PrivacyChoices, DeleteConversations, AnswerPreference, ArchiveConversation, DeleteConversation, EditQuestion
+from .db import Event, ResearchExport, Rollup, Session, SessionLocal, User, UserPreferences, UserPrivacy, DeletionRequest, ConversationMetadata, AnswerPreferences, ResponseDraft, ConversationState, ConversationDeletion, LearningPreferences, SupportReport, migrate, verify_schema, now
+from .schemas import Close, Emit, Hint, PAYLOADS, Start, Preferences, ConversationTitle, AnalysisRequest, PrivacyChoices, DeleteConversations, AnswerPreference, ArchiveConversation, DeleteConversation, EditQuestion, LanguagePreference, LearningGoal, ReportProblem, ReportStatus
 
 
 @asynccontextmanager
@@ -194,6 +194,8 @@ def conversation_settings(events):
 def expire_interrupted(db, session, events):
     for pending in in_flight(events):
         if (now()-timestamp(pending['created_at'])).total_seconds() >= 90:
+            draft=db.get(ResponseDraft,pending['id'])
+            if draft: draft.text=''
             append(db, session, 'ai_hint_failed', {**{key: pending['payload'][key] for key in ('provider', 'model') if key in pending['payload']}, 'request_event_id': pending['id'], 'reason': 'Request interrupted. Please request a new hint.'})
     return effective(timeline(db, session.id))
 
@@ -321,11 +323,117 @@ def save_answer_preferences(body: AnswerPreference, db=Depends(database), partic
     return {'answer_style': row.answer_style}
 
 
+def learning_preferences_row(db, participant):
+    db.scalar(select(User).where(User.id==participant.id).with_for_update())
+    row = db.get(LearningPreferences, participant.id)
+    if row is None:
+        row = LearningPreferences(user_id=participant.id)
+        db.add(row)
+    return row
+
+
+@app.get('/preferences/language')
+def get_language(db=Depends(database), participant=Depends(user)):
+    return {'answer_language':workspace.preferences(db,participant.id)['answer_language']}
+
+
+@app.post('/preferences/language')
+def save_language(body: LanguagePreference, db=Depends(database), participant=Depends(user)):
+    row = learning_preferences_row(db,participant)
+    row.answer_language = body.answer_language
+    db.commit()
+    return {'answer_language':row.answer_language}
+
+
+@app.get('/learning-goal')
+def get_learning_goal(db=Depends(database), participant=Depends(user)):
+    return workspace.goal_progress(db,participant.id)
+
+
+@app.post('/learning-goal')
+def save_learning_goal(body: LearningGoal, db=Depends(database), participant=Depends(user)):
+    if body.weekly_target and not body.goal:
+        raise HTTPException(422, 'Give your goal a short name, or set the target to zero to pause it.')
+    row = learning_preferences_row(db,participant)
+    row.goal, row.weekly_target = body.goal, body.weekly_target
+    db.commit()
+    return workspace.goal_progress(db,participant.id)
+
+
+@app.get('/support/reports')
+def own_reports(db=Depends(database), participant=Depends(user)):
+    return [privacy.record(row) for row in db.scalars(select(SupportReport).where(SupportReport.user_id==participant.id).order_by(SupportReport.created_at.desc(),SupportReport.id).limit(20))]
+
+
+@app.post('/support/reports', status_code=201)
+def report_problem(body: ReportProblem, db=Depends(database), participant=Depends(user)):
+    db.scalar(select(User).where(User.id==participant.id).with_for_update())
+    reference = str(body.reference) if body.reference else None
+    old = db.get(SupportReport, str(body.id))
+    if old:
+        if old.user_id!=participant.id or old.category!=body.category or old.message!=body.message or old.reference!=reference:
+            raise HTTPException(409, 'This report reference is already in use.')
+        return privacy.record(old)
+    recent = list(db.scalars(select(SupportReport.id).where(SupportReport.user_id==participant.id, SupportReport.created_at>=now()-timedelta(days=1)).limit(10)))
+    if len(recent)>=10:
+        raise HTTPException(429, 'You can submit up to 10 reports in 24 hours. Please wait before sending another.')
+    row = SupportReport(id=str(body.id),user_id=participant.id,category=body.category,message=body.message,reference=reference)
+    db.add(row)
+    db.commit()
+    return privacy.record(row)
+
+
+def require_operator(participant):
+    if mode()!='development' and not is_admin(participant.subject):
+        raise HTTPException(403, 'Operator access required.')
+
+
+@app.get('/operator/reports')
+def operator_reports(status: Literal['open','resolved']='open', offset: int=Query(0,ge=0), db=Depends(database), participant=Depends(user)):
+    require_operator(participant)
+    rows = list(db.scalars(select(SupportReport).where(SupportReport.status==status).order_by(SupportReport.created_at,SupportReport.id).offset(offset).limit(26)))
+    return {'items':[privacy.record(row) for row in rows[:25]], 'has_more':len(rows)>25}
+
+
+@app.post('/operator/reports/{report_id}')
+def update_report(report_id: UUID, body: ReportStatus, db=Depends(database), participant=Depends(user)):
+    require_operator(participant)
+    row = db.scalar(select(SupportReport).where(SupportReport.id==str(report_id)).with_for_update())
+    if row is None:
+        raise HTTPException(404, 'Report not found.')
+    row.status, row.updated_at = body.status, now()
+    db.commit()
+    return privacy.record(row)
+
+
 @app.get('/history')
 def history(q: str = Query('', max_length=200), status: Literal['all','open','completed','abandoned'] = 'all',
             experience: Literal['all','chat','guided'] = 'all', limit: int = Query(25,ge=1,le=50),
             offset: int = Query(0,ge=0), folder: Literal['active','archived','deletion']='active', db=Depends(database), participant=Depends(user)):
     return activity.history(db,participant.id,q,status,experience,limit,offset,folder)
+
+
+@app.get('/saved')
+def saved_answers(q: str = Query('', max_length=200), unpractised: bool = False,
+                  limit: int = Query(20, ge=1, le=50), offset: int = Query(0, ge=0),
+                  db=Depends(database), participant=Depends(user)):
+    items = learning.library(db, participant.id)
+    summary = {'saved':len(items), 'retried':sum(bool(item['attempts']) for item in items),
+               'attempts':sum(len(item['attempts']) for item in items)}
+    term = q.strip().casefold()
+    matches = [item for item in items if (not unpractised or not item['attempts'])
+               and (not term or term in item['question'].casefold() or term in item['answer'].casefold())]
+    return {'items':[{k:v for k,v in item.items() if k not in ('answer','attempts')} |
+                      {'attempt_count':len(item['attempts'])} for item in matches[offset:offset+limit]],
+            'total':len(matches), 'has_more':offset+limit<len(matches), 'summary':summary}
+
+
+@app.get('/saved/{answer_id}')
+def saved_answer(answer_id: UUID, db=Depends(database), participant=Depends(user)):
+    item = next((item for item in learning.library(db, participant.id) if item['answer_id']==str(answer_id)), None)
+    if item is None:
+        raise HTTPException(404, 'Saved answer not found. It may have been removed or its conversation deleted.')
+    return item
 
 
 @app.get('/progress')
@@ -452,15 +560,19 @@ def emit(body: Emit, db=Depends(database), participant=Depends(user)):
         if any(old.payload.get(k) != v for k, v in payload.items()):
             raise HTTPException(409, 'Event ID reused with different data.')
         return serialize(old)
-    if s.status != 'open' and body.event_type != 'answer_feedback':
+    if db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==s.id,ConversationDeletion.status=='pending')):
+        raise HTTPException(409,'Conversation deletion is pending.')
+    if s.status != 'open' and body.event_type not in ('answer_feedback', 'answer_saved', 'learning_attempt_submitted'):
         raise HTTPException(409, 'This session is closed. The pending event has not been saved.')
     events = effective(timeline(db, s.id))
     kind = body.event_type
-    if kind in ('practice_invitation_responded', 'answer_feedback'):
+    if kind in ('practice_invitation_responded', 'answer_feedback', 'answer_saved', 'learning_attempt_submitted'):
         if conversation_settings(events)['experience'] != 'chat':
             raise HTTPException(409, 'Optional practice and feedback are available in everyday conversations.')
         if not any(e['id'] == payload['answer_event_id'] and e['event_type'] == 'ai_hint_delivered' for e in events):
             raise HTTPException(400, 'Choose a delivered answer from this conversation.')
+    if kind == 'learning_attempt_submitted' and not learning.saved_state(events).get(payload['answer_event_id']):
+        raise HTTPException(409, 'Save this answer before retrying its question.')
     if kind == 'practice_invitation_responded':
         existing = next((e for e in events if e['event_type'] == kind and e['payload']['answer_event_id'] == payload['answer_event_id']), None)
         if existing:
@@ -615,11 +727,13 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
         hints = []  # Relevant earlier answers are already in the chronological history.
     candidates = routing.order(body.provider)
     max_attempts = min(usage.limits()['max_attempts'], len(candidates))
-    budget = provider.attempt_budget(body.tier, problem, attempt, hints, conversation, followup, body.answer_style, candidates)
+    language = workspace.preferences(db,participant.id)['answer_language']
+    purpose = 'exercise' if body.help_action=='exercise' else 'answer'
+    budget = provider.attempt_budget(body.tier, problem, attempt, hints, conversation, followup, body.answer_style, candidates, purpose=purpose, language=language)
     usage.reserve(db, body.event_id, participant.id, budget, max_attempts)
     req = append(db, s, 'ai_hint_requested', {**provenance, 'selected_provider': body.provider,
                                             'answer_style': body.answer_style, 'help_action': body.help_action, 'focus_question': problem,
-                                            'regenerate_of':str(body.regenerate_of) if body.regenerate_of else None, 'stream':body.stream,
+                                            'regenerate_of':str(body.regenerate_of) if body.regenerate_of else None, 'stream':body.stream, 'answer_language':language,
                                             **settings, 'request_kind': request_kind, 'followup_text': body.followup_text,
                                             'fallback_enabled': routing.enabled(), 'tier_requested': body.tier, 'preceded_by_attempt': bool(attempts),
                                             'time_since_session_start_ms': int((now()-timestamp(s.started_at)).total_seconds()*1000)}, body.event_id)
@@ -653,12 +767,14 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
             raise routing.Cancelled('Generation stopped. Usage already incurred still counts.')
         draft.text = text
         db.commit()
-        last_preview = time.monotonic()
+        last_preview = time.monotonic() if text else 0.0
     began = time.monotonic()
     try:
         generation = routing.generate(body.tier, problem, attempt, hints, body.provider,
                                  conversation, followup, record_attempt, body.answer_style, max_attempts,
-                                 **({'on_delta':preview, 'cancelled':cancelled} if body.stream else {}))
+                                 **({'on_delta':preview, 'cancelled':cancelled} if body.stream else {}),
+                                 **({'language':language} if language!='auto' else {}),
+                                 **({'purpose':purpose} if purpose!='answer' else {}))
     except SQLAlchemyError:
         raise
     except Exception as exc:
@@ -686,13 +802,15 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
         commit(db, participant.id)
         raise HTTPException(499, reason)
     result = append(db, s, 'ai_hint_delivered', {'provider': generation.provider or config['id'], 'model': generation.model or config['model'],
-                                               'answer_style': body.answer_style, 'usage': generation.usage,
+                                               'answer_style': body.answer_style, 'answer_language':language, 'usage': generation.usage,
                                                **settings, 'request_kind': request_kind, 'followup_text': body.followup_text,
                                                'help_action': body.help_action, 'focus_question': problem,
                                                'regenerate_of':str(body.regenerate_of) if body.regenerate_of else None,
                                                'reported_model': generation.reported_model, 'tier': body.tier, 'hint_text': generation.text, 'request_event_id': request_id,
                                                'model_latency_ms': int((time.monotonic()-began)*1000)})
     usage.finish(db, request_id)
+    if body.help_action=='exercise':
+        append(db,s,'conversation_mode_changed',{'mode':'try_myself','source':'related_exercise','answer_event_id':result.id})
     commit(db, participant.id)
     return serialize(result)
 
@@ -796,9 +914,10 @@ def review(sid: UUID, body: AnalysisRequest, db=Depends(database), participant=D
         raise HTTPException(409,'Save some thinking or get an answer before reviewing this conversation.')
     candidates=routing.order()
     max_attempts=min(usage.limits()['max_attempts'],len(candidates))
-    budget=provider.attempt_budget(3,context,'',[],None,None,'concise',candidates,'analysis')
+    language=workspace.preferences(db,participant.id)['answer_language']
+    budget=provider.attempt_budget(3,context,'',[],None,None,'concise',candidates,'analysis',language=language)
     usage.reserve(db,body.event_id,participant.id,budget,max_attempts)
-    request=append(db,session,'ai_analysis_requested',{'source_fingerprint':fingerprint,'excerpts_truncated':truncated},body.event_id)
+    request=append(db,session,'ai_analysis_requested',{'source_fingerprint':fingerprint,'excerpts_truncated':truncated,'answer_language':language},body.event_id)
     request_id=request.id
     db.commit()
     def record_attempt(report):
@@ -808,7 +927,7 @@ def review(sid: UUID, body: AnalysisRequest, db=Depends(database), participant=D
         append(db,current,'ai_analysis_provider_attempted',{**report,'request_event_id':request_id})
         db.commit()
     try:
-        generation=routing.generate(3,context,'',[],None,None,None,record_attempt,'concise',max_attempts,'analysis')
+        generation=routing.generate(3,context,'',[],None,None,None,record_attempt,'concise',max_attempts,'analysis',**({'language':language} if language!='auto' else {}))
     except SQLAlchemyError:
         raise
     except Exception as exc:

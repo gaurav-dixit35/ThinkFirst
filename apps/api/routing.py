@@ -51,7 +51,7 @@ class Exhausted(ValueError):
     pass
 
 
-async def _generate(tier, problem, attempt, hints, preferred, conversation, followup_text, on_attempt, answer_style, max_attempts, purpose, on_delta=None, cancelled=None):
+async def _generate(tier, problem, attempt, hints, preferred, conversation, followup_text, on_attempt, answer_style, max_attempts, purpose, on_delta=None, cancelled=None, language='auto'):
     started = time.monotonic()
     budget = seconds('AI_TOTAL_TIMEOUT_SECONDS', 50, 5, 55)
     per_attempt = seconds('AI_PROVIDER_TIMEOUT_SECONDS', 9, 1, 30)
@@ -90,7 +90,7 @@ async def _generate(tier, problem, attempt, hints, preferred, conversation, foll
                 if on_delta:
                     on_delta('')  # Replace a failed provider's preview; never concatenate fallbacks.
                 args = (tier, problem, attempt, hints, name, conversation, followup_text, answer_style, purpose)
-                task = asyncio.create_task(provider.generate_async(*args, **({'on_delta':on_delta} if on_delta else {})))
+                task = asyncio.create_task(provider.generate_async(*args, **({'on_delta':on_delta} if on_delta else {}), **({'language':language} if language!='auto' else {})))
                 try:
                     while not task.done():
                         if cancelled and cancelled():
@@ -148,7 +148,7 @@ async def _generate(tier, problem, attempt, hints, preferred, conversation, foll
 
 
 def generate(tier, problem, attempt, hints, preferred=None, conversation=None, followup_text=None, on_attempt: Callable | None = None,
-             answer_style='concise', max_attempts=None, purpose='answer', on_delta=None, cancelled=None):
+             answer_style='concise', max_attempts=None, purpose='answer', on_delta=None, cancelled=None, language='auto'):
     return asyncio.run(_generate(tier, problem, attempt, hints, preferred, conversation, followup_text,
                                 on_attempt or (lambda report: None), answer_style,
-                                max_attempts or limits()['max_attempts'], purpose, on_delta, cancelled))
+                                max_attempts or limits()['max_attempts'], purpose, on_delta, cancelled, language))

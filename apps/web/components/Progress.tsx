@@ -3,6 +3,8 @@ import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import {api,ProgressData} from '@/lib/api';
 import ProgressCharts from './ProgressCharts';
+import SavedProgress from './SavedProgress';
+import LearningGoal from './LearningGoal';
 
 export default function Progress(){
   const [experience,setExperience]=useState<'chat'|'guided'>('chat');
@@ -17,6 +19,7 @@ export default function Progress(){
       <div className="metric-grid">{[['Conversations',data.totals.conversations],['Your saved attempts',data.totals.own_attempts],['AI answers received',data.totals.ai_answers],['Completed by you',data.totals.completed]].map(([label,value])=><article className="metric-card" key={label}><span className="metric-label">{label}</span><strong>{value}</strong><small>All time · {experience==='chat'?'everyday chats':'guided study'}</small></article>)}</div>
       <p className="field-help progress-caption">{data.totals.in_progress} in progress · {data.totals.unfinished} left unfinished · {data.totals.failed_requests} unsuccessful AI requests. Completion is self-reported, not a correctness check.</p>
       <ProgressCharts data={data}/>
+      {experience==='chat'&&<><LearningGoal/><SavedProgress/></>}
       <div className="progress-sections"><section className="form-card"><h2>How you worked</h2><p className="field-help">Conversations grouped by saved attempts and delivered answers.</p><dl className="activity-breakdown">{[['Your attempts and AI answers',data.modes.both],['Your attempts only',data.modes.own_only],['AI answers only',data.modes.ai_only],['No attempt or answer saved yet',data.modes.no_saved_work]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>
       <section className="form-card"><h2>Recent activity</h2><p className="field-help">This week and the previous three weeks, in UTC. The current week is still in progress.</p><table className="activity-table"><caption className="sr-only">Weekly saved attempts and delivered AI answers</caption><thead><tr><th scope="col">Week starting</th><th scope="col">Your attempts</th><th scope="col">AI answers</th></tr></thead><tbody>{data.weeks.map(week=><tr key={week.week}><th scope="row">{week.week}</th><td>{week.own_attempts}</td><td>{week.ai_answers}</td></tr>)}</tbody></table></section></div>
       <section className="progress-review-note"><h2>Look back at one conversation</h2><p>Each chat includes a factual activity summary. You can also request an optional AI review there; it uses your AI allowance. Nothing is generated automatically.</p><Link className="secondary" href="/history">Open history</Link></section>

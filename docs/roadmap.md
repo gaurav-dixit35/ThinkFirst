@@ -82,4 +82,12 @@ Verification: 45 SQLite API/authentication/chat/history checks passed (one addit
 
 ## Usability follow-up after Phase 5
 
-Reviewed the user's mixed-topic phone/arithmetic chat and corrected help-button focus and attempt association. Reorganized Settings, added account answer-length defaults and sync/help controls, restored protocol-separated progress charts, and exposed configured Clerk account/signup controls. The home layout stays unchanged. See [chat review and remaining gaps](chat-review.md). These changes implement part of Phase 6; streaming, cancellation and optional modalities remain deferred. Phase 5 hosted launch gates are still open.
+Reviewed the user's mixed-topic phone/arithmetic chat and corrected help-button focus and attempt association. Reorganized Settings, added account answer-length defaults and sync/help controls, restored protocol-separated progress charts, and exposed configured Clerk account/signup controls. The home layout stays unchanged. See [chat review and remaining gaps](chat-review.md). These changes implement part of Phase 6; streaming/cancellation and text-chat controls are now implemented; optional modalities remain deferred. Phase 5 hosted launch gates are still open.
+
+## Saved answers and retries
+
+[Saved learning](saved-learning.md) adds answer bookmarks, searchable saved work and deliberate retries with the earlier answer hidden until requested. Saving, retrying and comparison use no AI requests. Progress counts these retries separately from first attempts; it does not assign grades. Personal account activation still needs Clerk credentials. Learning goals and language preferences are included in the subsequent functional completion batch below.
+
+## Functional completion batch
+
+See [functional updates](functional-updates.md) for weekly goals, language preferences, related exercises, Markdown conversation export and stored support reports. Only explicitly generating an exercise uses a new AI request; the other features do not. Production needs the additive table migration and refreshed runtime grants before startup.

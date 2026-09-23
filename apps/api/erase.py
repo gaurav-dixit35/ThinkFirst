@@ -7,7 +7,7 @@ import argparse
 from datetime import timedelta
 from uuid import UUID
 from sqlalchemy import select, delete, update
-from .db import engine, DeletionRequest, ConversationDeletion, ResponseDraft, ConversationState, UserPrivacy, Event, Session, ConversationMetadata, Rollup, AIUsageRequest, now
+from .db import engine, DeletionRequest, ConversationDeletion, ResponseDraft, ConversationState, UserPrivacy, Event, Session, ConversationMetadata, Rollup, AIUsageRequest, LearningPreferences, SupportReport, now
 
 
 def fulfill(connection, request_id, user_id):
@@ -29,6 +29,8 @@ def fulfill(connection, request_id, user_id):
     # This DML also starts a real SQLite transaction before transactional trigger DDL.
     connection.execute(update(request_table).where(request_table.id == request_id).values(status='completed', completed_at=now()))
     if request_table is DeletionRequest:
+        connection.execute(delete(SupportReport).where(SupportReport.user_id==user_id))
+        connection.execute(delete(LearningPreferences).where(LearningPreferences.user_id==user_id))
         connection.execute(update(UserPrivacy).where(UserPrivacy.user_id == user_id).values(research_opt_in=False, updated_at=now()))
         connection.execute(update(ConversationDeletion).where(ConversationDeletion.user_id==user_id,ConversationDeletion.status=='pending').values(status='completed',completed_at=now()))
     session_ids = select(Session.id).where(Session.user_id == user_id)

@@ -1,0 +1,1 @@
+export type SupportReport={id:string;user_id:string;category:'problem'|'suggestion'|'accessibility'|'ai_answer';message:string;reference:string|null;status:'open'|'resolved';created_at:string;updated_at:string};

@@ -35,7 +35,7 @@ def state(events, enabled=True, closed=False, at=None):
             last_decision = timestamp(event['created_at'])
             streak, anchor = 0, None
             active = payload['answer_event_id'] if payload['decision'] == 'try_myself' else None
-        elif kind == 'ai_hint_delivered' and payload.get('mode', mode) == 'ask_ai' and mode == 'ask_ai':
+        elif kind == 'ai_hint_delivered' and payload.get('help_action')!='exercise' and payload.get('mode', mode) == 'ask_ai' and mode == 'ask_ai':
             streak += 1
             if streak == 3:
                 anchor = event['id']

@@ -32,6 +32,10 @@ if os.getenv('QA_MOCK_AI') == 'true':
         text = ('Subtracting the same amount preserves equality.' if context.get('followup_question') else
                 'Subtract 3, then divide by 2. The result is 4.' if 'prior_hints' in context else
                 'Consider inverse operations.' if 'attempt' in context else 'Which operation would isolate the variable?')
-        return httpx.Response(200, json={'modelVersion': 'qa-synthetic-model', 'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': text}]}}]})
+        payload = {'modelVersion': 'qa-synthetic-model', 'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': text}]}}]}
+        if request.url.path.endswith(':streamGenerateContent'):
+            return httpx.Response(200, headers={'Content-Type': 'text/event-stream'},
+                                  content=f'data: {json.dumps(payload)}\n\n')
+        return httpx.Response(200, json=payload)
     client = httpx.AsyncClient
     provider.httpx.AsyncClient = lambda **kwargs: client(transport=httpx.MockTransport(handle), **kwargs)

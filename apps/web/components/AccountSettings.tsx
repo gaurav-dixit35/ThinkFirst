@@ -6,7 +6,7 @@ import {useIdentity} from './Providers';
 function HostedAccount(){
   const {user}=useUser(),clerk=useClerk();
   const [error,setError]=useState(''),[busy,setBusy]=useState(false);
-  return <><p className="account-name">{user?.fullName||user?.username||'Your account'}</p><p>{user?.primaryEmailAddress?.emailAddress}</p><div className="settings-actions"><button className="secondary" onClick={()=>clerk.openUserProfile()}>Manage account</button><button className="text-button" disabled={busy} onClick={async()=>{setBusy(true);try{await clerk.signOut();}catch{setError('Could not sign out. Please try again.');setBusy(false);}}}>{busy?'Signing out…':'Sign out'}</button></div><p className="field-help">Manage your sign-in methods and active sessions in your account. Unsent drafts stay on this browser.</p>{error&&<p role="alert">{error}</p>}</>;
+  return <><p className="account-name">{user?.fullName||user?.username||'Your account'}</p><p>{user?.primaryEmailAddress?.emailAddress}</p><div className="settings-actions"><button className="secondary" onClick={()=>clerk.openUserProfile()}>Manage account</button><button className="text-button" disabled={busy} onClick={async()=>{setBusy(true);try{await clerk.signOut({redirectUrl:'/login'});}catch{setError('Could not sign out. Please try again.');setBusy(false);}}}>{busy?'Signing out…':'Sign out'}</button></div><p className="field-help">Manage your sign-in methods and active sessions in your account. Unsent drafts stay on this browser.</p>{error&&<p role="alert">{error}</p>}</>;
 }
 export default function AccountSettings(){
   const identity=useIdentity();

@@ -1,6 +1,8 @@
 import {api, ApiError} from './api';
 
 type Payloads = {
+  answer_saved: {answer_event_id: string; saved: boolean};
+  learning_attempt_submitted: {answer_event_id: string; attempt_text: string};
   conversation_mode_changed: {mode: 'ask_ai' | 'try_myself'};
   attempt_submitted: {attempt_text: string; is_partial: boolean};
   attempt_skipped: {skip_reason: string | null};

@@ -81,12 +81,23 @@ class AnalysisRequest(Strict):
     session_id: UUID
 
 
+class SavedAnswer(Strict):
+    answer_event_id: UUID
+    saved: bool = Field(strict=True)
+
+
+class LearningAttempt(Strict):
+    answer_event_id: UUID
+    attempt_text: str = Field(min_length=1, max_length=20000)
+
+
 PAYLOADS = {'attempt_submitted': Attempt, 'attempt_skipped': Skip,
             'verification_submitted': Verification, 'verification_skipped': VerificationSkip,
             'evaluation_submitted': Evaluation, 'evaluation_skipped': Strict,
             'attempt_correctness_reported': Correctness, 'event_invalidated': Invalidation,
             'conversation_mode_changed': ConversationMode,
-            'practice_invitation_responded': PracticeDecision, 'answer_feedback': AnswerFeedback}
+            'practice_invitation_responded': PracticeDecision, 'answer_feedback': AnswerFeedback,
+            'answer_saved': SavedAnswer, 'learning_attempt_submitted': LearningAttempt}
 
 
 class Emit(Strict):
@@ -111,7 +122,7 @@ class Hint(Strict):
     provider: Literal['auto', 'gemini', 'groq', 'openrouter', 'mistral', 'cloudflare', 'anthropic'] | None = None
     followup_text: str | None = Field(default=None, min_length=1, max_length=5000)
     answer_style: Literal['concise', 'detailed'] = 'concise'
-    help_action: Literal['hint', 'answer'] | None = None
+    help_action: Literal['hint', 'answer', 'exercise'] | None = None
     stream: bool = Field(default=False, strict=True)
     regenerate_of: UUID | None = None
 
@@ -133,3 +144,23 @@ class EditQuestion(Strict):
 class Close(Strict):
     event_id: UUID
     final_status: Literal['solved_independently', 'solved_with_ai', 'solved_without_ai_response', 'abandoned']
+
+
+class LanguagePreference(Strict):
+    answer_language: Literal['auto', 'english', 'hindi', 'hinglish']
+
+
+class LearningGoal(Strict):
+    goal: str = Field(max_length=160)
+    weekly_target: int = Field(ge=0, le=50, strict=True)
+
+
+class ReportProblem(Strict):
+    id: UUID
+    category: Literal['problem', 'suggestion', 'accessibility', 'ai_answer']
+    message: str = Field(min_length=10, max_length=2000)
+    reference: UUID | None = None
+
+
+class ReportStatus(Strict):
+    status: Literal['open', 'resolved']
