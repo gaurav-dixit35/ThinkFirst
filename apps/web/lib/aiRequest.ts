@@ -1,7 +1,7 @@
 import {api, ApiError, LogEvent, ProviderName} from './api';
 import {scopedKey, storageOwner} from './browserStorage';
 
-export type HintRequest = {event_id:string; session_id:string; tier:number; provider?:ProviderName; followup_text?:string; answer_style?:'concise'|'detailed';help_action?:'hint'|'answer'|'exercise';stream?:boolean;regenerate_of?:string};
+export type HintRequest = {event_id:string; session_id:string; tier:number; provider?:ProviderName; followup_text?:string; answer_style?:'concise'|'detailed';help_action?:'hint'|'answer'|'exercise'|'check_thinking';stream?:boolean;regenerate_of?:string};
 export const requestKey = (id:string) => scopedKey('ai-request', id);
 export type ReviewRequest = {event_id:string;session_id:string};
 export const reviewKey = (id:string) => scopedKey('ai-review', id);

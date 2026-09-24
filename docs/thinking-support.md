@@ -1,0 +1,12 @@
+# Optional thinking support
+
+This batch extends existing conversations without changing the home page, navigation, Ask AI composer, or Try myself workflow. No new pages or database tables are required.
+
+- Try myself adds **Check my thinking · 1 AI request**. The current draft is saved before generation, or the latest saved attempt for that question is used. Missing current-question attempts are rejected before charging allowance. The dedicated prompt asks for brief feedback and one next step, not a worked solution. Feedback is an AI suggestion, not certified grading or guaranteed answer suppression. Existing fallback, language, request replay, streaming and Stop controls apply. The action keeps the current mode.
+- Non-exercise AI responses have collapsed **Check this answer (optional)** controls. Users record checked, found an issue, or not checked, plus a method and optional note. Saving and revising a report use no AI. Reports persist after completing a conversation and are included in personal JSON and readable Markdown exports. They remain distinct from Helpful/Not helpful and the guided research verification protocol.
+- Collapsed **Thinking activity in this conversation** shows attempts, answer/hint/check/exercise requests and the latest reported verification decisions per recorded question turn. Links return to the relevant message. No report means unreported. Counts are not correctness, confidence, effort or mastery measures.
+- New attempts and AI events carry stable question event references. Original questions, explicit typed follow-ups and related exercises establish anchors. Help buttons and regenerated answers retain their source anchor. An explicit follow-up is a recorded turn, not an inferred new semantic topic. Late/offline attempts can retain their original same-conversation anchor; they do not become evidence of work on the current question. Historical timelines are reconstructed separately without rewriting events or existing session-level statistics.
+
+The schema and research mapping are documented in [event-schema.md](event-schema.md#optional-thinking-support--question-turn-v1). This batch does not implement a new cohort statistical model, confidence scores, delayed reminders, reviewed problem bank or a comparative study. Those remain later additions, subject to a defined study protocol and consent.
+
+Activate by restarting the API and rebuilding/restarting the website. Existing authentication and provider credentials remain unchanged. Validation is recorded after implementation in validation.md.

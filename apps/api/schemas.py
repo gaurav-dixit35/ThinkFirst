@@ -10,6 +10,7 @@ class Strict(BaseModel):
 class Attempt(Strict):
     attempt_text: str = Field(min_length=1, max_length=20000)
     is_partial: bool = True
+    question_event_id: UUID | None = None
 
 
 class Skip(Strict):
@@ -55,6 +56,13 @@ class AnswerFeedback(Strict):
     rating: Literal['helpful', 'not_helpful', 'cleared']
 
 
+class AnswerVerification(Strict):
+    answer_event_id: UUID
+    status: Literal['checked', 'found_issue', 'not_checked']
+    method: Literal['calculation', 'example', 'source', 'reasoning', 'other'] | None = None
+    note: str = Field(default='', max_length=2000)
+
+
 class Preferences(Strict):
     practice_reminders: bool = Field(strict=True)
 
@@ -97,6 +105,7 @@ PAYLOADS = {'attempt_submitted': Attempt, 'attempt_skipped': Skip,
             'attempt_correctness_reported': Correctness, 'event_invalidated': Invalidation,
             'conversation_mode_changed': ConversationMode,
             'practice_invitation_responded': PracticeDecision, 'answer_feedback': AnswerFeedback,
+            'answer_verification_reported': AnswerVerification,
             'answer_saved': SavedAnswer, 'learning_attempt_submitted': LearningAttempt}
 
 
@@ -122,7 +131,7 @@ class Hint(Strict):
     provider: Literal['auto', 'gemini', 'groq', 'openrouter', 'mistral', 'cloudflare', 'anthropic'] | None = None
     followup_text: str | None = Field(default=None, min_length=1, max_length=5000)
     answer_style: Literal['concise', 'detailed'] = 'concise'
-    help_action: Literal['hint', 'answer', 'exercise'] | None = None
+    help_action: Literal['hint', 'answer', 'exercise', 'check_thinking'] | None = None
     stream: bool = Field(default=False, strict=True)
     regenerate_of: UUID | None = None
 

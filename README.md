@@ -9,7 +9,7 @@ An AI conversation workspace with optional independent thinking. Ask for an answ
 Prerequisites: Python 3.11+, Node 22+, Docker Desktop running. PostgreSQL uses **55432** on the host so an existing database on 5432 can coexist.
 
 ```powershell
-Copy-Item .env.example .env
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
 docker compose up -d db
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r apps/api/requirements.lock.txt

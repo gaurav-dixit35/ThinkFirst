@@ -58,3 +58,5 @@
 .related-exercise{border-top:1px solid var(--line);padding:18px 0;margin-top:16px}.related-exercise summary{cursor:pointer;min-height:32px}.related-exercise p{margin:12px 0}.related-exercise button{min-height:44px}
 
 .auth-footer{display:block;margin:28px 0 0;padding:20px 0}.auth-footer nav{justify-content:center}
+
+.answer-verification{margin-top:12px}.answer-verification summary,.thinking-activity summary{cursor:pointer;min-height:44px;display:list-item;padding:10px 0}.answer-verification form{display:grid;gap:10px;max-width:580px;padding:12px 0}.answer-verification select,.answer-verification textarea{width:100%;min-width:0;font-size:16px}.answer-verification button{justify-self:start;min-height:44px}.thinking-activity{border-top:1px solid var(--line);margin-top:16px;padding:12px 0}.thinking-activity ol{padding-left:22px}.thinking-activity li{margin:18px 0;overflow-wrap:anywhere}.thinking-activity li a{text-decoration:underline}.thinking-activity li p{margin-top:8px;font-size:13px}

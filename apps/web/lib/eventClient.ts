@@ -4,7 +4,7 @@ type Payloads = {
   answer_saved: {answer_event_id: string; saved: boolean};
   learning_attempt_submitted: {answer_event_id: string; attempt_text: string};
   conversation_mode_changed: {mode: 'ask_ai' | 'try_myself'};
-  attempt_submitted: {attempt_text: string; is_partial: boolean};
+  attempt_submitted: {attempt_text: string; is_partial: boolean; question_event_id?:string};
   attempt_skipped: {skip_reason: string | null};
   verification_submitted: {hint_event_id: string; matches_own_attempt: boolean | null; justification: string};
   verification_skipped: {hint_event_id: string};

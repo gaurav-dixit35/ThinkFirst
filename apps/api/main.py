@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from analytics.etl import effective, reconstruct, summarize, timestamp, user_frame
 from analytics.stats import analyze
-from . import provider, routing, usage, practice, activity, privacy, chat_context, deployment, learning, workspace
+from . import provider, routing, usage, practice, activity, privacy, chat_context, deployment, learning, workspace, question_tracking
 from .http_safety import RequestBodyLimit
 from .auth import identity, is_admin, mode, origins, validate_configuration
 from .db import Event, ResearchExport, Rollup, Session, SessionLocal, User, UserPreferences, UserPrivacy, DeletionRequest, ConversationMetadata, AnswerPreferences, ResponseDraft, ConversationState, ConversationDeletion, LearningPreferences, SupportReport, migrate, verify_schema, now
@@ -541,6 +541,7 @@ def get_session(sid: UUID, db=Depends(database), participant=Depends(user)):
             'deletion_pending':bool(db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==s.id,ConversationDeletion.status=='pending'))),
             'answer_style': answer_preferences(db, participant)['answer_style'],
             **conversation_settings(effective(events)),
+            'question_tracking': question_tracking.view(effective(events)) if conversation_settings(effective(events))['experience'] == 'chat' else None,
             'title':metadata.title if metadata and metadata.title else activity.title(events[0]['payload']['problem_text']),
             'custom_title':bool(metadata and metadata.title),'overview':activity.overview(effective(events)),
             'practice': practice.state(effective(events), practice.preferences(db, participant.id)['practice_reminders'], s.status != 'open')}
@@ -554,6 +555,8 @@ def emit(body: Emit, db=Depends(database), participant=Depends(user)):
         payload = PAYLOADS[body.event_type].model_validate(body.payload).model_dump(mode='json')
     except ValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
+    if payload.get('question_event_id') is None:
+        payload.pop('question_event_id', None)
     s = locked(db, body.session_id, participant, False)
     old = duplicate(db, body.event_id, participant, s.id, body.event_type)
     if old:
@@ -562,15 +565,25 @@ def emit(body: Emit, db=Depends(database), participant=Depends(user)):
         return serialize(old)
     if db.scalar(select(ConversationDeletion.id).where(ConversationDeletion.session_id==s.id,ConversationDeletion.status=='pending')):
         raise HTTPException(409,'Conversation deletion is pending.')
-    if s.status != 'open' and body.event_type not in ('answer_feedback', 'answer_saved', 'learning_attempt_submitted'):
+    if s.status != 'open' and body.event_type not in ('answer_feedback', 'answer_saved', 'learning_attempt_submitted', 'answer_verification_reported'):
         raise HTTPException(409, 'This session is closed. The pending event has not been saved.')
     events = effective(timeline(db, s.id))
     kind = body.event_type
-    if kind in ('practice_invitation_responded', 'answer_feedback', 'answer_saved', 'learning_attempt_submitted'):
+    if kind in ('practice_invitation_responded', 'answer_feedback', 'answer_saved', 'learning_attempt_submitted', 'answer_verification_reported'):
         if conversation_settings(events)['experience'] != 'chat':
             raise HTTPException(409, 'Optional practice and feedback are available in everyday conversations.')
         if not any(e['id'] == payload['answer_event_id'] and e['event_type'] == 'ai_hint_delivered' for e in events):
             raise HTTPException(400, 'Choose a delivered answer from this conversation.')
+    if kind == 'answer_verification_reported':
+        target = next(e for e in events if e['id'] == payload['answer_event_id'])
+        if target['payload'].get('help_action') == 'exercise':
+            raise HTTPException(422, 'Choose an answer rather than a practice question.')
+        if (payload['status'] == 'not_checked') != (payload['method'] is None):
+            raise HTTPException(422, 'Choose how you checked the answer, or select Not checked without a method.')
+        anchor = question_tracking.view(events)['event_questions'].get(target['id'])
+        if not anchor:
+            raise HTTPException(409, 'The source question is no longer available for verification.')
+        payload.update(question_tracking.metadata(anchor))
     if kind == 'learning_attempt_submitted' and not learning.saved_state(events).get(payload['answer_event_id']):
         raise HTTPException(409, 'Save this answer before retrying its question.')
     if kind == 'practice_invitation_responded':
@@ -587,6 +600,14 @@ def emit(body: Emit, db=Depends(database), participant=Depends(user)):
         payload['time_since_session_start_ms'] = int((now()-timestamp(s.started_at)).total_seconds()*1000)
         if kind == 'attempt_submitted':
             payload['text_length'] = len(payload['attempt_text'])
+            if conversation_settings(events)['experience'] == 'chat':
+                tracking = question_tracking.view(events)
+                anchor = payload.get('question_event_id') or tracking['current_question_event_id']
+                if not any(q['id'] == anchor for q in tracking['questions']):
+                    raise HTTPException(422, 'Choose a question from this conversation.')
+                payload.update(question_tracking.metadata(anchor))
+            elif payload.get('question_event_id'):
+                raise HTTPException(422, 'Question-turn references are only available in everyday conversations.')
     if kind.startswith('verification_'):
         target = next((e for e in pending_hints(events) if e['id'] == payload['hint_event_id']), None)
         if not target:
@@ -725,13 +746,27 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
     if is_chat:
         problem, attempt, conversation, followup = chat_context.context(context_events, body.followup_text, body.help_action)
         hints = []  # Relevant earlier answers are already in the chronological history.
+    if body.help_action == 'check_thinking' and not attempt.strip():
+        raise HTTPException(409, 'Save your thinking for the current question before asking for feedback.')
+    question_meta = {}
+    if is_chat:
+        tracking = question_tracking.view(context_events)
+        anchor = tracking['current_question_event_id']
+        if body.regenerate_of:
+            anchor = question_tracking.view(events)['event_questions'].get(source['id'])
+            if not anchor:
+                raise HTTPException(409, 'The source question is no longer available for regeneration.')
+        elif question_tracking.explicit_question(body.model_dump()):
+            anchor = str(body.event_id)
+        question_meta = question_tracking.metadata(anchor)
     candidates = routing.order(body.provider)
     max_attempts = min(usage.limits()['max_attempts'], len(candidates))
     language = workspace.preferences(db,participant.id)['answer_language']
-    purpose = 'exercise' if body.help_action=='exercise' else 'answer'
+    purpose = body.help_action if body.help_action in ('exercise', 'check_thinking') else 'answer'
     budget = provider.attempt_budget(body.tier, problem, attempt, hints, conversation, followup, body.answer_style, candidates, purpose=purpose, language=language)
     usage.reserve(db, body.event_id, participant.id, budget, max_attempts)
     req = append(db, s, 'ai_hint_requested', {**provenance, 'selected_provider': body.provider,
+                                            **question_meta,
                                             'answer_style': body.answer_style, 'help_action': body.help_action, 'focus_question': problem,
                                             'regenerate_of':str(body.regenerate_of) if body.regenerate_of else None, 'stream':body.stream, 'answer_language':language,
                                             **settings, 'request_kind': request_kind, 'followup_text': body.followup_text,
@@ -802,6 +837,7 @@ def hint(body: Hint, db=Depends(database), participant=Depends(user)):
         commit(db, participant.id)
         raise HTTPException(499, reason)
     result = append(db, s, 'ai_hint_delivered', {'provider': generation.provider or config['id'], 'model': generation.model or config['model'],
+                                               **question_meta,
                                                'answer_style': body.answer_style, 'answer_language':language, 'usage': generation.usage,
                                                **settings, 'request_kind': request_kind, 'followup_text': body.followup_text,
                                                'help_action': body.help_action, 'focus_question': problem,

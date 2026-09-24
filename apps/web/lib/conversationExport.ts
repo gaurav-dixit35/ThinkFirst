@@ -9,6 +9,7 @@ export function conversationMarkdown(data:SessionData){
   else if(event.event_type==='attempt_submitted'){label='Your thinking';text=p.attempt_text;}
   else if(event.event_type==='ai_hint_delivered'){label=p.tier<3?'ThinkFirst hint':'ThinkFirst';text=p.hint_text;}
   else if(event.event_type==='learning_attempt_submitted'){label=`Your later retry (answer ${p.answer_event_id})`;text=p.attempt_text;}
+  else if(event.event_type==='answer_verification_reported'){label=`Your verification report (answer ${p.answer_event_id})`;text=`${p.status}${p.method?` · ${p.method}`:''}\n${p.note||''}`;}
   else if(event.event_type==='ai_hint_failed'){label='Request status';text=p.reason;}
   if(text)lines.push(`## ${label}`, '', String(text), '');
  }

@@ -13,6 +13,8 @@ import PracticeSupport from './PracticeSupport';
 import ConversationTitle from './ConversationTitle';
 import ConversationReview from './ConversationReview';
 import ConversationTools,{EditQuestion} from './ConversationTools';
+import AnswerVerification from './AnswerVerification';
+import ThinkingActivity from './ThinkingActivity';
 
 export default function SessionFlow({id}:{id:string}) {
   const [data,setData]=useState<SessionData|null>(null);
@@ -54,6 +56,9 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
   events.filter(e=>e.event_type==='answer_saved').forEach(e=>savedAnswers.set(e.payload.answer_event_id,e.payload.saved));
   const feedback=new Map<string,Rating>();
   events.filter(e=>e.event_type==='answer_feedback').forEach(e=>feedback.set(e.payload.answer_event_id,e.payload.rating));
+  const verification=new Map(events.filter(e=>e.event_type==='answer_verification_reported').map(e=>[e.payload.answer_event_id,e]));
+  const questionId=data.question_tracking?.current_question_event_id;
+  const hasCurrentAttempt=events.some(e=>e.event_type==='attempt_submitted'&&questionId&&data.question_tracking?.event_questions[e.id]===questionId);
   useEffect(()=>{
     let current=true;
     void api<AIUsage>('/ai/usage').then(value=>{if(current)setAllowance(value);}).catch(()=>{if(current)setAllowance(null);});
@@ -109,7 +114,7 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
   async function saveAttempt() {
     const text=attempt.trim();
     if(!text)return;
-    await emitEvent(id,'attempt_submitted',{attempt_text:text,is_partial:true});
+    await emitEvent(id,'attempt_submitted',{attempt_text:text,is_partial:true,...(questionId?{question_event_id:questionId}:{})});
     setAttempt('');
   }
   async function ask(tier:number,text?:string) {
@@ -125,6 +130,12 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     if(previous){await deliver(previous,true);return;}
     await saveAttempt();
     await deliver({event_id:crypto.randomUUID(),session_id:id,tier:3,provider:'auto',answer_style:'concise',help_action:'exercise',followup_text:'Give me one related practice question without the answer.'});
+  }
+  async function checkThinking(){
+    const previous=requestRef.current||savedRequest();
+    if(previous){await deliver(previous,true);return;}
+    await saveAttempt();
+    await deliver({event_id:crypto.randomUUID(),session_id:id,tier:3,provider:'auto',answer_style:'concise',help_action:'check_thinking',followup_text:'Check my thinking for the current question without a worked solution.'});
   }
   async function stop() {
     if(!activeRequest||stopping)return;setStopping(true);setError('');
@@ -160,12 +171,13 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
         const assistant=event.event_type==='ai_hint_delivered';
         const own=event.event_type==='attempt_submitted';
         return <article id={`message-${event.id}`} tabIndex={-1} key={event.id} className={`${matches.includes(event.id)?'message-search-match':''} chat-message ${assistant?'assistant-message':'user-message'} ${own?'own-attempt':''}`}>
-          <div className="message-label">{assistant?<><img src="/logo.png" alt="" width={24} height={24}/>ThinkFirst{event.payload.regenerate_of&&<span>New version</span>}{event.payload.tier<3&&<span>Hint</span>}{event.payload.help_action==='exercise'&&<span>Practice question</span>}</>:own?<><PenLine size={14}/>Your thinking</>:'You'}</div>
+          <div className="message-label">{assistant?<><img src="/logo.png" alt="" width={24} height={24}/>ThinkFirst{event.payload.regenerate_of&&<span>New version</span>}{event.payload.tier<3&&<span>Hint</span>}{event.payload.help_action==='exercise'&&<span>Practice question</span>}{event.payload.help_action==='check_thinking'&&<span>Thinking feedback</span>}</>:own?<><PenLine size={14}/>Your thinking</>:'You'}</div>
           {assistant?<AnswerContent text={event.payload.hint_text}/>:<div className="message-content">{event.payload.problem_text || event.payload.attempt_text || event.payload.followup_text}</div>}
           {!assistant&&!own&&!event.payload.help_action&&<EditQuestion sessionId={id} event={event} disabled={busy||!!activeRequest||Boolean(data.deletion_pending)}/>}
           {assistant&&event.id===replies.at(-1)?.id&&!closed&&<button className="text-button" disabled={busy||!!activeRequest||events.slice(events.indexOf(event)+1).some(e=>['attempt_submitted','ai_hint_requested'].includes(e.event_type))} onClick={()=>void run(()=>regenerate(event.id))}>Regenerate answer</button>}
           {assistant&&event.payload.help_action!=='exercise'&&!data.deletion_pending&&<div className="saved-answer-actions"><button className="text-button" aria-pressed={savedAnswers.get(event.id)||false} disabled={busy} onClick={()=>void run(()=>emitEvent(id,'answer_saved',{answer_event_id:event.id,saved:!savedAnswers.get(event.id)}))}>{savedAnswers.get(event.id)?'Remove from Saved':'Save for later'}</button>{savedAnswers.get(event.id)&&<Link className="text-button" href={`/practice/${event.id}`}>Try this question again</Link>}</div>}
           {assistant&&!data.deletion_pending&&<AnswerFeedback sessionId={id} answerId={event.id} rating={feedback.get(event.id)} reload={reload}/>}
+          {assistant&&event.payload.help_action!=='exercise'&&!data.deletion_pending&&<AnswerVerification sessionId={id} answerId={event.id} saved={verification.get(event.id)} reload={reload}/>}
         </article>;
       })}
       {pendingQuestion&&<article className="chat-message user-message"><div className="message-label">You</div><div className="message-content">{pendingQuestion}</div></article>}
@@ -183,6 +195,7 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
         <label className="field-label" htmlFor="own-attempt">What would you try?</label><textarea ref={attemptInput} id="own-attempt" rows={4} maxLength={20000} value={attempt} disabled={busy||!!activeRequest} onChange={e=>setAttempt(e.target.value)} placeholder="Write a rough idea, a first step, or your own answer…"/>
         <div className="composer-actions"><button className="primary" disabled={busy||!!activeRequest||!attempt.trim()}>Save my thinking <Check size={15}/></button><div className="button-row"><button className="text-button" type="button" disabled={busy||!!activeRequest} onClick={()=>void run(()=>ask(2))}><Lightbulb size={15}/>Get a hint</button><button className="text-button" type="button" disabled={busy||!!activeRequest} onClick={()=>void run(()=>ask(3))}>Show an answer</button></div></div>
         <p className="field-help">When you ask for help, your current attempt is saved with it.</p>
+        <button className="text-button" type="button" disabled={busy||!!activeRequest||(!attempt.trim()&&!hasCurrentAttempt)||allowance?.requests_remaining===0} onClick={()=>void run(checkThinking)}>Check my thinking · 1 AI request</button>
       </form>}
     </div>}
     {!closed&&<div className="conversation-options"><label>Answer length <select value={answerStyle} disabled={busy||!!activeRequest} onChange={e=>setAnswerStyle(e.target.value as 'concise'|'detailed')}><option value="concise">Concise</option><option value="detailed">Detailed</option></select></label>
@@ -190,5 +203,6 @@ function Conversation({data,reload}:{data:SessionData;reload:()=>Promise<void>})
     </div>}
     {!closed&&<details className="related-exercise"><summary>Practise a related question</summary><p>Get one new question to try yourself. Your current attempt is saved first. This uses one AI request and may use fallback services within the existing limits.</p><button className="secondary" disabled={busy||!!activeRequest||!!unfinished||allowance?.requests_remaining===0} onClick={()=>void run(relatedExercise)}>Create a practice question · 1 AI request</button></details>}
     {!data.deletion_pending&&<ConversationReview data={data} reload={reload}/> }
+    <ThinkingActivity data={data.question_tracking}/>
   </section>;
 }

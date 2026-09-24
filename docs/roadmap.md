@@ -91,3 +91,7 @@ Reviewed the user's mixed-topic phone/arithmetic chat and corrected help-button 
 ## Functional completion batch
 
 See [functional updates](functional-updates.md) for weekly goals, language preferences, related exercises, Markdown conversation export and stored support reports. Only explicitly generating an exercise uses a new AI request; the other features do not. Production needs the additive table migration and refreshed runtime grants before startup.
+
+## Optional thinking support — first additive batch
+
+Ask AI and Try myself keep their existing structure. [Thinking support](thinking-support.md) adds explicit attempt feedback inside Try myself, optional verification reports on responses, and collapsed per-question-turn activity. Stable anchors keep mixed-topic attempts and regenerations associated with their source question. Existing session metrics and the guided protocol remain unchanged. No new pages or schema tables are introduced. Confidence checks, delayed retries, reviewed problems and comparative research setup remain deferred.
