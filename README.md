@@ -136,3 +136,5 @@ Saved answers and retries, optional weekly goals, English/Hindi/Hinglish answer 
 Use `npm run dev` or `npm run start` in `apps/web`, and open `http://localhost:3000`. Both scripts explicitly use the same `localhost` hostname. With Clerk middleware on this version of Next.js, binding the website to `127.0.0.1` while browsing `localhost` caused a self-proxy loop and Internal Server Error; do not restore that combination. The separate API may still bind to `127.0.0.1:8000`.
 
 For synthetic browser QA after enabling Clerk, follow the Validation commands above. To inspect the real login screens without creating accounts, set `$env:CLERK_SMOKE='1'` and `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'` in `apps/web`, then run `npx playwright test e2e/clerk-smoke.spec.ts`. Clear `CLERK_SMOKE` before returning to synthetic QA.
+
+Thinkfirst demo deployment 
