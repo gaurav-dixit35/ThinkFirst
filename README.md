@@ -138,3 +138,5 @@ Use `npm run dev` or `npm run start` in `apps/web`, and open `http://localhost:3
 For synthetic browser QA after enabling Clerk, follow the Validation commands above. To inspect the real login screens without creating accounts, set `$env:CLERK_SMOKE='1'` and `$env:PLAYWRIGHT_BASE_URL='http://localhost:3000'` in `apps/web`, then run `npx playwright test e2e/clerk-smoke.spec.ts`. Clear `CLERK_SMOKE` before returning to synthetic QA.
 
 Thinkfirst demo deployment 
+Trigger a fresh ThinkFirst demo build
+
