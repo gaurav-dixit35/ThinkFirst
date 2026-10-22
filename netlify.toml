@@ -8,5 +8,5 @@
   NEXT_TELEMETRY_DISABLED = "1"
   THINKFIRST_HOSTED = "1"
 
-# Configure API URL and Clerk credentials in Netlify, never in this file.
-# Next.js is served by Netlify's automatic OpenNext integration, not an SPA redirect.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
